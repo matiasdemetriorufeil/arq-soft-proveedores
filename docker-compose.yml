@@ -1,0 +1,143 @@
+# Procedimiento único para levantar todo el sistema:
+#
+#   Copy-Item .env.example .env     (PowerShell)  ·  cp .env.example .env  (bash)
+#   docker compose up -d --build
+#
+# Al host salen solo el gateway y la UI de Jaeger. Postgres y las réplicas de
+# proveedores-service quedan en la red interna: la única entrada al sistema es
+# el gateway. Las migraciones y el seed los aplica el propio servicio al
+# arrancar, así que Postgres no necesita scripts de inicio.
+
+name: arq-soft-proveedores
+
+# Las dos réplicas tienen que ser idénticas para que el balanceo signifique
+# algo, así que comparten esta definición. Son dos servicios con nombre y no
+# `deploy.replicas` porque el gateway necesita dos nombres DNS distintos: un
+# http.Client de Go se queda con la primera dirección que resuelve y repartiría
+# todo a la misma réplica.
+x-proveedores: &proveedores
+  image: arq-soft/proveedores-service:dev
+  environment:
+    DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    API_KEYS: ${API_KEYS:?falta API_KEYS en .env}
+    PORT: "8080"
+  volumes:
+    - sonda:/sonda:ro
+  depends_on:
+    postgres:
+      condition: service_healthy
+    sonda:
+      condition: service_completed_successfully
+  # La imagen del servicio es distroless: no trae shell ni cliente HTTP, así que
+  # el healthcheck usa el busybox que dejó el servicio `sonda` en el volumen.
+  # Cuando proveedores-service adopte el logger compartido —y su Dockerfile se
+  # pueda tocar— esto se reemplaza por un binario de sonda en la propia imagen y
+  # el servicio `sonda` se borra.
+  healthcheck:
+    test: ["CMD", "/sonda/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+    interval: 5s
+    timeout: 5s
+    retries: 12
+    start_period: 40s
+  networks: [interna]
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?falta POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:?falta POSTGRES_DB en .env}
+    volumes:
+      - datos-postgres:/var/lib/postgresql/data
+    healthcheck:
+      # El $$ escapa el $ para que lo expanda la shell del contenedor y no compose.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [interna]
+    restart: unless-stopped
+
+  # Colector y visor de trazas en un solo contenedor. La línea 1.x acepta OTLP
+  # en 4317/4318 sin archivo de configuración.
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    ports:
+      - "${PUERTO_JAEGER:-16686}:16686" # UI
+    healthcheck:
+      # 14269 es el puerto de administración de Jaeger; no se publica al host.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:14269/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks: [interna]
+    restart: unless-stopped
+
+  # Contenedor de inicialización: copia un busybox estático al volumen `sonda`
+  # para que las réplicas distroless puedan correr su propio healthcheck.
+  # Termina enseguida; queda como `Exited (0)`.
+  sonda:
+    image: busybox:1.37.0-musl
+    command: ["sh", "-c", "cp -f /bin/busybox /sonda/busybox"]
+    volumes:
+      - sonda:/sonda
+    networks: [interna]
+    restart: "no"
+
+  proveedores-service-1:
+    <<: *proveedores
+    # Solo esta réplica declara el build. Las dos corren exactamente la misma
+    # imagen y, si las dos la construyeran, chocarían al etiquetarla: compose
+    # las construye en paralelo.
+    build:
+      context: ./services/proveedores-service
+
+  proveedores-service-2:
+    <<: *proveedores
+    # Reusa la imagen que construyó la réplica 1; es local, no hay registro del
+    # que bajarla.
+    pull_policy: never
+
+  api-gateway:
+    build:
+      # El contexto es la raíz del repo: el módulo del gateway depende de
+      # pkg/observabilidad por ruta relativa.
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    image: arq-soft/api-gateway:dev
+    environment:
+      PORT: "8080"
+      UPSTREAMS_PROVEEDORES: http://proveedores-service-1:8080,http://proveedores-service-2:8080
+      API_KEYS: ${API_KEYS:?falta API_KEYS en .env}
+      TIMEOUT_UPSTREAM: ${TIMEOUT_UPSTREAM:-3s}
+      INTERVALO_SALUD: ${INTERVALO_SALUD:-5s}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    ports:
+      - "${PUERTO_GATEWAY:-8080}:8080"
+    depends_on:
+      proveedores-service-1:
+        condition: service_healthy
+      proveedores-service-2:
+        condition: service_healthy
+    # Jaeger no es una dependencia a propósito: si el colector no está, el
+    # gateway tiene que seguir atendiendo igual, solo sin exportar trazas.
+    healthcheck:
+      test: ["CMD", "/sonda"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    networks: [interna]
+    restart: unless-stopped
+
+networks:
+  interna:
+    driver: bridge
+
+volumes:
+  datos-postgres:
+  sonda:

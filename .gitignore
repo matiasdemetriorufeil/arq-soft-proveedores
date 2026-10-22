@@ -1,0 +1,27 @@
+# Configuración local y secretos. .env.example es la única excepción: tiene los
+# valores de desarrollo y sí se versiona.
+.env
+.env.*
+!.env.example
+
+# Binarios compilados
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Salidas de tests y cobertura
+*.out
+*.test
+coverage*
+
+# Caché de render de las skills de BMad: se regenera solo
+_bmad/render/
+
+# Editores y sistema operativo
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

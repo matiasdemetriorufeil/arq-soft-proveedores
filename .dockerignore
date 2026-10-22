@@ -1,0 +1,41 @@
+# Contexto de build de la imagen del api-gateway, que se construye desde la raíz
+# del repo. Lo único que tiene que entrar es pkg/observabilidad y
+# services/api-gateway; todo lo demás se excluye para que el contexto sea chico
+# y para que no se filtre un .env en una imagen.
+#
+# proveedores-service tiene su propio .dockerignore: su contexto de build es su
+# directorio, así que este archivo no lo afecta.
+
+.git
+.gitattributes
+.gitignore
+.github
+
+# Nunca en una imagen
+.env
+.env.*
+
+# El Dockerfile del gateway no usa el workspace: cada módulo compila solo.
+go.work
+go.work.sum
+
+# Módulo de otro servicio, que se construye con su propio contexto
+services/proveedores-service
+
+# Orquestación y documentación
+docker-compose.yml
+docs
+**/*.md
+
+# Herramientas de agentes
+.agents
+.claude
+_bmad
+_bmad-output
+skills-lock.json
+
+# Salidas de tests y binarios
+**/*.out
+**/*.test
+**/coverage*
+bin
