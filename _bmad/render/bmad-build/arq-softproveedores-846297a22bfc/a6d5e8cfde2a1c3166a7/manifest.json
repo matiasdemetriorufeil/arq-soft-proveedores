@@ -1,0 +1,62 @@
+{
+  "generation_hash": "a6d5e8cfde2a1c3166a7",
+  "inputs": {
+    "jinja2_version": "3.1.6",
+    "project_root": "C:\\Users\\demet\\arqui-software-proyecto\\arq-softproveedores",
+    "renderer_sha256": "d6446c4b1094d788d9ef421876203b8b2576e3dbe1cc08f189a030e3def880ea",
+    "resolved_values": {
+      "config.core.output_folder": "C:/Users/demet/arqui-software-proyecto/arq-softproveedores/_bmad-output",
+      "customization.workflow.activation_steps_append": [],
+      "customization.workflow.activation_steps_prepend": [],
+      "customization.workflow.implementation_handoff": "Launch a subagent with no prior conversation context, with this prompt:\n\n> Read {plan_file} fully and implement it — the plan is the sole source of truth. Load every file listed in its frontmatter `context:` before you start.\n>\n> When done, report what you changed, how you verified it, and anything left incomplete or risky.\n",
+      "customization.workflow.on_complete": "",
+      "customization.workflow.open_plan": "",
+      "customization.workflow.persistent_facts": [],
+      "customization.workflow.quick_lenses": [
+        {
+          "id": "quick",
+          "instruction": "Launch a context-free subagent with this prompt:\n\nRead `{plan_file}` — the plan holding the acceptance criteria and intent — and the files its frontmatter `context:` lists. Read the agent instruction files (`AGENTS.md`, `CLAUDE.md`, or equivalents) at the repository root and in the directories the diff touches; those are the rules. Then read the unified diff at `{diff_file}` — it is the change under review.\n\nReport unmet acceptance criteria, broken rules, and bugs. Each finding: the location, what goes wrong, and evidence checked against the surrounding code. Output a Markdown list of findings only — no severity, priority, or ranking.\n\nReview by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.\n\n",
+          "name": "Quick"
+        }
+      ],
+      "customization.workflow.review": "quick",
+      "customization.workflow.route": "auto",
+      "customization.workflow.route_selection": "Decide whether to use a coding subagent (full) or implement directly (oneshot).\nUsing the information already gathered, with no further reading and minimal\nextra reasoning, estimate the lines of code to add or modify.\n100 lines or fewer: oneshot. Otherwise: full.\nIf the change touches more than five files and is not simple or mechanical,\nconsider upgrading to full.\n",
+      "initiative_folder": "C:/Users/demet/arqui-software-proyecto/arq-softproveedores/_bmad-output"
+    },
+    "skill_root": "C:\\Users\\demet\\arqui-software-proyecto\\arq-softproveedores\\.claude\\skills\\bmad-build",
+    "source_sha256": {
+      "plan-template.md": "d8b2b886839573c30b5cab5fc256fd8a3050ddb9ab64117b5651dce2406e2077",
+      "references/claims-check.md": "6cb20a86d819b95272876bca0dffef59ca07ba6a373d804295066751043867c0",
+      "references/deletion-check.md": "0f1f124e4e957147e89164a272b10bedc694ad0d9ad2618c8610ac74ee9cb0da",
+      "review-prompts/edge-case-hunter.md": "b909fe0ec8e4daaf2550d0ec783618c5146261d0dbc0e054698ce00d0905a3d1",
+      "review-prompts/verification-gap.md": "859930110817293bf9d25bd6df093f094cdc50fe6b8359e3720aee6dba96e17a",
+      "step-01-clarify-and-route.md": "abf395fb9cb3fd07c635622522bb1f6d59041eabd0dc7be79078cb759aef11da",
+      "step-02-plan.md": "44a0242450a0f316756d0f9abc6dbde6473e5f05742c9d97cf12531679693991",
+      "step-03-implement.md": "df1a0f8a8fdb524581d371505a12a33a25d5150ecb442a58a9d8145d2b284954",
+      "step-04-review.md": "5e2e3b5bd166bf8fa835a21ba27b147cf4c6373fbf2b712a4c251968f3805169",
+      "step-05-present.md": "8c3a4f5e627524b05c3f1db4850b6ab68ae6930d8046c340a3e1590dccc4ed61",
+      "step-oneshot.md": "1313ccda88e42fc813ed585bd2f3794480c33cb40dea674cb45ca860310dbf9e",
+      "workflow.md": "a4a1fed8a1d374b5ff8ac5613211a2e31d7e89743d1b153348ae6fe9ce36ec80"
+    }
+  },
+  "outputs": {
+    "plan-template.md": "d8b2b886839573c30b5cab5fc256fd8a3050ddb9ab64117b5651dce2406e2077",
+    "references/claims-check.md": "6cb20a86d819b95272876bca0dffef59ca07ba6a373d804295066751043867c0",
+    "references/deletion-check.md": "0f1f124e4e957147e89164a272b10bedc694ad0d9ad2618c8610ac74ee9cb0da",
+    "review-prompts/edge-case-hunter.md": "b909fe0ec8e4daaf2550d0ec783618c5146261d0dbc0e054698ce00d0905a3d1",
+    "review-prompts/verification-gap.md": "859930110817293bf9d25bd6df093f094cdc50fe6b8359e3720aee6dba96e17a",
+    "step-01-clarify-and-route.md": "d2c5a8e840b7ba0cf2d764610e4093521bae779c1dbbcc9316ebbab54b587938",
+    "step-02-plan.md": "83be075265089d02744025781bcbd485b3db16d6d576f741cda391aa9e811b7f",
+    "step-03-implement.md": "452e5c966ef593dffd65e2538fa7e8b375d2026a045b6d5242c9ab0b51fbd622",
+    "step-04-review.md": "b714572d6b7876b626959197f9c499169325544b51eb1c704ddd5940f3de6588",
+    "step-05-present.md": "edda56d0325a599734fef653501c2e56cd45ace615343113768b6a3f4f1b3540",
+    "step-oneshot.md": "d6a967f384d519eb28316477fe0195e9aab5511c23bf04081081f7240034dd99",
+    "workflow.md": "203c4d4f41ffd894b44f70a1dacd2621512243b3f469f942981a454af03709fb"
+  },
+  "project_root": "C:\\Users\\demet\\arqui-software-proyecto\\arq-softproveedores",
+  "project_slug": "arq-softproveedores",
+  "root_hash": "846297a22bfc",
+  "schema_version": 1,
+  "skill": "bmad-build"
+}

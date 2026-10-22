@@ -1,0 +1,10 @@
+.git
+.gitignore
+.dockerignore
+Dockerfile
+README.md
+*.out
+*.test
+coverage*
+.env
+.env.*
