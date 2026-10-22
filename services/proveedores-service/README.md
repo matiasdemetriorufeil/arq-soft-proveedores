@@ -62,6 +62,19 @@ La imagen es multi-stage: compila con `golang:1.26-alpine` y corre sobre `distro
 go vet ./... && go test ./... -cover
 ```
 
+Estos tests no necesitan Docker ni una base de datos.
+
+**Integración con PostgreSQL.** El adaptador `internal/adapters/postgres` se prueba contra un PostgreSQL 16 real (`postgres:16-alpine`) que levanta [testcontainers-go](https://golang.testcontainers.org/) en un puerto libre del host. No hace falta tener Postgres corriendo ni definir variables de entorno, pero sí **Docker corriendo**:
+
+```bash
+go test -tags=integration ./internal/adapters/postgres/ -v
+```
+
+- Los tests están en archivos `*_integration_test.go` con el build tag `integration`, así que `go test ./...` no los compila.
+- La primera corrida descarga la imagen `postgres:16-alpine` y tarda más.
+- Cubren las migraciones embebidas (carga inicial e idempotencia), las consultas de ofertas (SKU con ofertas, producto sin ofertas, SKU inexistente), `Ping` y el comportamiento con la base caída.
+- Los contenedores se eliminan al terminar, aunque los tests fallen. Si Docker no está disponible, la corrida falla con un mensaje que lo indica.
+
 ## API
 
 ### `GET /api/v1/proveedores/recomendados`
