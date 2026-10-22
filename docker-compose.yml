@@ -21,20 +21,18 @@ x-proveedores: &proveedores
     DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
     API_KEYS: ${API_KEYS:?falta API_KEYS en .env}
     PORT: "8080"
-  volumes:
-    - sonda:/sonda:ro
+    # Con esto el servicio exporta sus spans y la traza del gateway sigue hasta
+    # la consulta a Postgres. Si se saca, el servicio arranca igual: las trazas
+    # quedan en no-op.
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
   depends_on:
     postgres:
       condition: service_healthy
-    sonda:
-      condition: service_completed_successfully
   # La imagen del servicio es distroless: no trae shell ni cliente HTTP, así que
-  # el healthcheck usa el busybox que dejó el servicio `sonda` en el volumen.
-  # Cuando proveedores-service adopte el logger compartido —y su Dockerfile se
-  # pueda tocar— esto se reemplaza por un binario de sonda en la propia imagen y
-  # el servicio `sonda` se borra.
+  # el healthcheck es el binario `sonda` de su propia imagen, que pregunta por
+  # /readyz y sale 0 o 1.
   healthcheck:
-    test: ["CMD", "/sonda/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+    test: ["CMD", "/sonda"]
     interval: 5s
     timeout: 5s
     retries: 12
@@ -77,24 +75,16 @@ services:
     networks: [interna]
     restart: unless-stopped
 
-  # Contenedor de inicialización: copia un busybox estático al volumen `sonda`
-  # para que las réplicas distroless puedan correr su propio healthcheck.
-  # Termina enseguida; queda como `Exited (0)`.
-  sonda:
-    image: busybox:1.37.0-musl
-    command: ["sh", "-c", "cp -f /bin/busybox /sonda/busybox"]
-    volumes:
-      - sonda:/sonda
-    networks: [interna]
-    restart: "no"
-
   proveedores-service-1:
     <<: *proveedores
     # Solo esta réplica declara el build. Las dos corren exactamente la misma
     # imagen y, si las dos la construyeran, chocarían al etiquetarla: compose
     # las construye en paralelo.
     build:
-      context: ./services/proveedores-service
+      # El contexto es la raíz del repo: el módulo del servicio depende de
+      # pkg/observabilidad por ruta relativa, igual que el del gateway.
+      context: .
+      dockerfile: services/proveedores-service/Dockerfile
 
   proveedores-service-2:
     <<: *proveedores
@@ -140,4 +130,3 @@ networks:
 
 volumes:
   datos-postgres:
-  sonda:
