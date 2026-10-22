@@ -1,0 +1,11 @@
+go 1.26.1
+
+// Los tres módulos del repo se desarrollan juntos: el workspace deja que
+// api-gateway importe pkg/observabilidad sin publicar el paquete ni fijar una
+// versión. Las imágenes Docker no usan el workspace (ver el Dockerfile del
+// gateway), así que cada módulo tiene que seguir compilando por su cuenta.
+use (
+	./pkg/observabilidad
+	./services/api-gateway
+	./services/proveedores-service
+)
