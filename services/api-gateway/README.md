@@ -121,21 +121,14 @@ Si vas a tocar el repo, estas cuatro te van a cruzar. Las de contrato están en
 [`docs/contracts/README.md`](../../docs/contracts/README.md).
 
 - **No corras `go work sync`.** Empuja la lista de build del workspace a los
-  `go.mod` de los tres módulos, y eso reescribe
-  `services/proveedores-service/go.mod` subiéndole OpenTelemetry de 1.44.0 a
-  1.47.0. No hace falta: cada módulo compila solo. Para verificar usá
+  `go.mod` de los tres módulos y les mete requerimientos que ninguno necesita
+  por su cuenta. No hace falta: cada módulo compila solo. Para verificar usá
   `go vet ./...` y `go test ./...` dentro de cada módulo.
-- **El primer `go test -tags=integration` reescribe `go.work.sum`.** El workspace
-  resuelve `golang.org/x/crypto` a una versión más alta que la del `go.mod` del
-  servicio y agrega el hash que falta. Ya quedó commiteado con el hash completo;
-  si igual te aparece modificado, commitealo y listo.
-- **La imagen del gateway se construye desde la raíz del repo**, no desde este
-  directorio: el módulo depende de `pkg/observabilidad` por ruta relativa. El
-  `.dockerignore` que manda es el de la raíz. `proveedores-service` sigue
-  construyéndose con su propio directorio como contexto.
-- **El healthcheck de las réplicas es un andamio.** Su imagen es distroless y su
-  Dockerfile no se podía tocar en esta parte, así que un contenedor de
-  inicialización (`sonda`) les copia un `busybox` a un volumen compartido. Cuando
-  `proveedores-service` adopte `pkg/observabilidad` y su Dockerfile se toque,
-  metele un binario de sonda propio —como el `cmd/sonda` de acá— y borrá del
-  compose el servicio `sonda` y su volumen.
+- **Las dos imágenes se construyen desde la raíz del repo**, no desde el
+  directorio de cada servicio: los dos módulos dependen de `pkg/observabilidad`
+  por ruta relativa. El `.dockerignore` que manda es el de la raíz, y cada
+  `Dockerfile` copia solo su módulo y el paquete compartido.
+- **El healthcheck de cada contenedor es un binario de su propia imagen.** Las
+  imágenes son distroless: no traen shell ni cliente HTTP. Los dos servicios
+  tienen su `cmd/sonda`, que pregunta por `/readyz` y sale 0 o 1; en el compose
+  el test es `["CMD", "/sonda"]`. Si agregás un servicio, copiale el patrón.
