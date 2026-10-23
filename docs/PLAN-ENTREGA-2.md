@@ -13,7 +13,7 @@ Reparto del trabajo entre los 4 integrantes para llegar a la Entrega 2 con lo ob
 | 1 | Backend del dominio | ✅ Terminado: `proveedores-service` + tests unitarios + tests de integración + ADR D2 |
 | 2 | Plataforma y observabilidad | ⏳ Pendiente |
 | 3 | Contrato y documentación base | ⏳ Pendiente |
-| 4 | Decisiones, mediciones y entrega | ⏳ Pendiente |
+| 4 | Decisiones, mediciones y entrega | ✅ Plantilla ADR, D5, D6, D7, D9, D10, D13, test de carga con k6 y guion de la demo. Falta: contrato del grupo de ropa (D9) y el tag `entrega-2` |
 
 Cada uno actualiza su fila cuando termina.
 
