@@ -36,7 +36,7 @@ internal/adapters/postgres/  adaptador de salida: pgx, consulta con join, migrac
 
 Regla de dependencias: `adapters → ports → domain`. `domain` no importa nada fuera de la biblioteca estándar. El handler llama a `repo.OfertasPorProducto` y después a `domain.Rankear`: el dominio recibe las ofertas ya cargadas y no sabe de dónde vienen.
 
-**Para el segundo servicio proponemos la arquitectura en capas** (handler → service → repository), por ejemplo en `stock-service`. Su problema es distinto: el riesgo no está en reglas de cálculo que haya que aislar, sino en ejecutar dentro de una transacción la reserva de stock sin sobreventa y las transiciones de la orden de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`). Una capa de servicio que abre la transacción y un repositorio que bloquea filas (`SELECT … FOR UPDATE`) expresan eso de forma directa. Con estilos distintos en los dos servicios, el requisito 2.1 queda cubierto de forma reconocible. Esta propuesta la tiene que validar el grupo.
+**Para el segundo servicio proponemos la arquitectura en capas** (handler → service → repository), por ejemplo en `stock-service`. Su problema es distinto: el riesgo no está en reglas de cálculo que haya que aislar, sino en ejecutar dentro de una transacción la reserva de stock sin sobreventa y las transiciones de la orden de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`, más los finales `VENCIDA` y `EN_REVISION` que agrega [ADR-009](ADR-009-consumo-proveedor.md)). Una capa de servicio que abre la transacción y un repositorio que bloquea filas (`SELECT … FOR UPDATE`) expresan eso de forma directa. Con estilos distintos en los dos servicios, el requisito 2.1 queda cubierto de forma reconocible. Esta propuesta la tiene que validar el grupo.
 
 ## Por qué
 

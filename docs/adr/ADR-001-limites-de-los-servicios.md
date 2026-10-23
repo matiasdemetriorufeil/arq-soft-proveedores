@@ -28,7 +28,7 @@ A la fecha de este ADR solo existen en el código el gateway y `proveedores-serv
 |---|---|---|---|
 | `api-gateway` | implementado | Entrada única: API key, `X-Request-ID`, trazas y reparto entre réplicas. **Sin base de datos ni lógica de dominio.** | ninguno |
 | `proveedores-service` | implementado | Ranking de ofertas de proveedores por costo total. Publica la capacidad que consume el grupo de paneles solares. | `proveedores`, `productos`, `ofertas` (PostgreSQL) |
-| `stock-service` | propuesto | Stock propio, reserva sin sobreventa, punto de reorden y órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`). | existencias y órdenes |
+| `stock-service` | propuesto | Stock propio, reserva sin sobreventa, punto de reorden y órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`, más `VENCIDA` y `EN_REVISION` según [ADR-009](ADR-009-consumo-proveedor.md)), incluidos los pedidos al grupo de ropa. | existencias y órdenes |
 | `import-service` | propuesto | Ingesta y normalización de las listas de precios de cada proveedor, incluido el catálogo de ropa que consumimos. | listas crudas y su normalización |
 | `catalog-service` | propuesto | Catálogo maestro: mapea los códigos de cada proveedor a un mismo producto. | catálogo unificado |
 
@@ -36,7 +36,7 @@ A la fecha de este ADR solo existen en el código el gateway y `proveedores-serv
 
 - **Ningún servicio lee la base de otro.** Solo se llaman por su API o por eventos.
 - **Solo el gateway recibe tráfico de afuera.** Los servicios y las bases viven en la red interna de Docker.
-- **Las llamadas a proveedores externos salen del servicio responsable**, no del gateway ni del frontend (consigna 4.1). El que consume el catálogo de ropa es `import-service`.
+- **Las llamadas a proveedores externos salen del servicio responsable**, no del gateway ni del frontend (consigna 4.1). Con el grupo de ropa (FAV) hablan dos: `import-service` consume su catálogo y `stock-service` le hace los pedidos de reposición y recibe su webhook, directo y no por el gateway ([ADR-009](ADR-009-consumo-proveedor.md)).
 - Interacciones previstas (a confirmar en D5): `stock-service` pregunta a `proveedores-service` a quién reponer (síncrona); `import-service` avisa a `proveedores-service` que hay precios nuevos (evento asíncrono).
 
 **Tensión que dejamos escrita:** hoy la tabla `productos` vive en `proveedores-service`, porque es el único servicio y necesita distinguir un SKU inexistente (`404`) de un producto sin ofertas (`200 []`). Cuando exista `catalog-service`, el dueño de `productos` pasa a ser él, y habrá que decidir si `proveedores-service` guarda una copia local actualizada por evento o lo consulta por API. Esa decisión va en un ADR nuevo que **reemplace esta parte**; no se resuelve ahora.

@@ -21,8 +21,9 @@ El descuento aplica solo si la cantidad alcanza el mínimo que fija el proveedor
 
 - **Publicamos** esta consulta al **grupo de paneles solares**, que la usa para
   elegir a quién comprarle. Contrato en [`docs/contracts/`](docs/contracts/README.md).
-- **Consumimos** el catálogo del **grupo de ropa**, que entrará como un proveedor
-  más. *Todavía no está integrado.*
+- **Consumimos** la capacidad del **grupo de ropa** (FAV): su catálogo entra como un
+  proveedor más y la reposición le hace pedidos. *Diseñado en
+  [ADR-009](docs/adr/ADR-009-consumo-proveedor.md), todavía no integrado.*
 
 ## Flujo principal
 

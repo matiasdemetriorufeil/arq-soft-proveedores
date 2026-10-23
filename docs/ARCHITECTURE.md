@@ -44,8 +44,13 @@ flowchart LR
 ```
 
 - **Hacia adentro** solo entra tráfico por el `api-gateway`.
-- **Hacia afuera**, la llamada al grupo de ropa sale del servicio responsable de
-  importar (consigna 4.1), no del gateway ni de un navegador.
+- **Hacia afuera**, las llamadas al grupo de ropa (FAV) salen del servicio
+  responsable (consigna 4.1): el catálogo, de `import-service`, y los pedidos de
+  reposición, de `stock-service`; nunca del gateway ni de un navegador. El único
+  tráfico de FAV hacia nosotros es su webhook firmado, que recibe `stock-service`
+  directamente y no el gateway, porque la consigna (4.1) prohíbe canalizar la
+  comunicación con el proveedor por el punto de entrada propio
+  ([ADR-009](adr/ADR-009-consumo-proveedor.md)).
 
 ## 3. Contenedores
 
@@ -147,7 +152,9 @@ puede comprarle; no es el stock propio, que será de `stock-service`.
 | Servicios → Jaeger | asíncrona (telemetría) | OTLP/HTTP | implementado | Si Jaeger no está, el sistema responde igual |
 | `stock-service` → `proveedores-service` | síncrona | HTTP | propuesto | Se define en D5 |
 | `import-service` → `proveedores-service` | asíncrona (evento) | mensajería | propuesto | Se define en D5 |
-| `import-service` → grupo de ropa | síncrona | HTTP | propuesto | Se define en D5 y D9 |
+| `import-service` → FAV (grupo de ropa), catálogo | síncrona | HTTP, cada 5 min | propuesto | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, última importación válida si falla |
+| `stock-service` → FAV, pedidos | síncrona | HTTP con `Idempotency-Key` | propuesto | [ADR-009](adr/ADR-009-consumo-proveedor.md) |
+| FAV → `stock-service` (directo, sin gateway) | asíncrona (webhook) | HTTP firmado con HMAC | propuesto | Aviso de cambio de estado del pedido ([ADR-009](adr/ADR-009-consumo-proveedor.md)) |
 
 ## 7. Flujo principal
 
@@ -230,7 +237,7 @@ Detalle y límites en [ADR-011](adr/ADR-011-observabilidad.md).
 | D6 | Búsqueda | [ADR-006](adr/ADR-006-busqueda.md) | propuesto |
 | D7 | Caché | [ADR-007](adr/ADR-007-cache.md) | propuesto |
 | D8 | Contrato propio | [ADR-008](adr/ADR-008-contrato-propio.md) | aceptado |
-| D9 | Consumo del proveedor | [ADR-009](adr/ADR-009-consumo-proveedor.md) | propuesto (falta el contrato del grupo de ropa) |
+| D9 | Consumo del proveedor | [ADR-009](adr/ADR-009-consumo-proveedor.md) | propuesto (diseñado sobre el contrato v1.1.0 de FAV) |
 | D10 | Resiliencia | [ADR-010](adr/ADR-010-resiliencia.md) | aceptado (gateway y servicio); resto propuesto |
 | D11 | Observabilidad | [ADR-011](adr/ADR-011-observabilidad.md) | aceptado para logs y trazas; resto propuesto |
 | D12 | Balanceo de carga | [ADR-012](adr/ADR-012-balanceo-de-carga.md) | aceptado |
@@ -257,9 +264,10 @@ grupal pide actualizar.
 - **Sin comunicación asíncrona.** No hay mensajería, evento de dominio ni
   consumidor idempotente.
 - **Sin motor de búsqueda ni caché.** Hoy cada consulta va a PostgreSQL.
-- **Sin integración real con el grupo de ropa.** El catálogo de ropa todavía no
-  entra al flujo, así que hoy no cuenta como integración con consecuencias sobre
-  el negocio (consigna 4.1).
+- **Sin integración real con el grupo de ropa.** El consumo del contrato de FAV
+  (catálogo y pedidos) está diseñado en [ADR-009](adr/ADR-009-consumo-proveedor.md)
+  pero no implementado, así que hoy no cuenta como integración con consecuencias
+  sobre el negocio (consigna 4.1).
 - **Sin despliegue en la nube.** La capacidad corre solo en local; falta la URL
   pública que pide la presentación.
 

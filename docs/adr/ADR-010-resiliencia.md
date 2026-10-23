@@ -32,7 +32,8 @@ El riesgo particular de nuestro sistema es que la capacidad la consume **otro gr
 | `proveedores-service` | PostgreSQL al arrancar | reintenta las migraciones **15 veces cada 2 s** antes de rendirse | timeout de 10 s por intento | implementado |
 | todos | Jaeger | **ningún efecto**: el exportador falla en segundo plano y las requests siguen; Jaeger no es dependencia en el compose | ningún efecto | implementado |
 | `proveedores-service` | Redis (caché) | se saltea la caché y se lee de PostgreSQL | timeout corto (50 ms) y la misma salida | propuesto ([ADR-007](ADR-007-cache.md)) |
-| `import-service` | grupo de ropa | circuit breaker; el ranking sigue con la última lista conocida | timeout de 2 s | propuesto ([ADR-009](ADR-009-consumo-proveedor.md)) |
+| `import-service` | catálogo de FAV (tienda de ropa) | circuit breaker; el ranking sigue con la última importación válida, hasta 24 h | timeout de 3 s y hasta 3 reintentos | propuesto ([ADR-009](ADR-009-consumo-proveedor.md)) |
+| `stock-service` | pedidos de FAV | la orden de reposición queda en `BORRADOR`; los reintentos técnicos repiten su `Idempotency-Key` | timeout de 3 s; un aviso perdido lo recupera la consulta cada 15 min | propuesto ([ADR-009](ADR-009-consumo-proveedor.md)) |
 
 Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.md), y la salida del reparto por salud, en [ADR-012](ADR-012-balanceo-de-carga.md).
 
@@ -45,7 +46,7 @@ Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.
 
 ### Mecanismos propuestos
 
-- **Circuit breaker** sobre la llamada al grupo de ropa: abre con 5 fallas seguidas, se queda abierto 30 s y deja pasar una prueba (medio abierto).
+- **Circuit breaker** sobre las llamadas a FAV, la tienda de ropa: abre con 5 fallas seguidas, se queda abierto 30 s y deja pasar una prueba (medio abierto).
 - **Respaldo desde la caché:** si PostgreSQL no responde pero hay ofertas en Redis, servirlas marcadas como posiblemente desactualizadas. Se decide en la Entrega 3, junto con la caché.
 - **Límite de tráfico en el gateway**, por API key (token bucket) y de concurrencia total, para rechazar rápido lo que exceda en lugar de colapsar ([ADR-013](ADR-013-capacidad-y-costos.md)). La presentación pide "control de tráfico" en el punto de entrada.
 
@@ -53,7 +54,7 @@ Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.
 
 - **Las réplicas existen para esto**: sin la salida del reparto, tener dos réplicas no protege nada, porque la mitad de las requests seguirían yendo a la caída.
 - **A propósito, un timeout no saca la réplica del reparto**: si las dos están lentas por la base, sacarlas dejaría al sistema sin réplicas sanas y convertiría una lentitud en una caída total.
-- **El circuit breaker vale donde no controlamos la dependencia.** Frente a nuestras réplicas tenemos señales mejores (el sondeo de salud); frente al grupo de ropa no, y una caída suya no puede llenar nuestro servicio de llamadas colgadas.
+- **El circuit breaker vale donde no controlamos la dependencia.** Frente a nuestras réplicas tenemos señales mejores (el sondeo de salud); frente a FAV no, y una caída suya no puede llenar nuestro servicio de llamadas colgadas.
 - **Que la telemetría sea opcional** evita el peor caso: que la herramienta para diagnosticar la falla sea la que la provoque.
 
 ## Consecuencias aceptadas
