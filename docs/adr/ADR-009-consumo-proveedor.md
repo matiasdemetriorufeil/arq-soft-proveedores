@@ -1,13 +1,16 @@
 # ADR-009 — Consumo del proveedor: catálogo de ropa (D9)
 
-- **Estado:** **propuesto**. No hay código que consuma al grupo de ropa y **todavía no tenemos el link a su contrato publicado**; los nombres de campos de abajo son supuestos y se corrigen cuando lo tengamos. El consumo real corresponde a la Entrega 3 (6/11).
+- **Estado:** **propuesto**. No hay código que consuma al grupo de ropa y **todavía no tenemos el link a su contrato publicado**; los nombres de campos de abajo son supuestos y se corrigen cuando lo tengamos. El consumo real corresponde a la Entrega 3 (6/11). Falta para cerrarlo:
+  - el link a su contrato publicado y la versión vigente;
+  - ajustar el mapeo de campos y los valores por defecto a ese contrato;
+  - un entorno accesible (URL y credenciales) para el test de contrato.
 - **Fecha:** 2026-10-23
 - **Entrega:** 2 (23/10)
 - **Decisión de la consigna:** D9. Incorporación de la capacidad externa, adaptación al contrato y comportamiento ante errores, cambios o indisponibilidad.
 
 ## Contexto
 
-Consumimos el **catálogo de ropa** de otro grupo. Según lo acordado con el profe, la tienda de ropa funciona como **un proveedor más**: sus productos y precios entran a la comparación y se contabiliza el stock de lo que le compramos.
+Consumimos el **catálogo de ropa** de otro grupo. Según lo acordado con la cátedra, la tienda de ropa funciona como **un proveedor más**: sus productos y precios entran a la comparación y se contabiliza el stock de lo que le compramos.
 
 La consigna (4.1) y el complemento ponen condiciones:
 
@@ -32,9 +35,8 @@ La consigna (4.1) y el complemento ponen condiciones:
 - **Frecuencia:** cada **5 minutos**, y al arrancar. Tras importar, se publica `ListaPreciosActualizada` ([ADR-005](ADR-005-comunicacion.md)), que actualiza el ranking, la caché y la búsqueda.
 - **Llamada saliente:** timeout de **2 s** por request; hasta **2 reintentos** con espera exponencial solo ante errores de red, `429` o `5xx`, y respetando `Retry-After`; nunca ante `4xx`. Circuit breaker según [ADR-010](ADR-010-resiliencia.md) (abre con 5 fallas seguidas, 30 s abierto). Credenciales en `.env`, nunca en el repo.
 - **Si no responden:** se conserva la **última importación válida**. Las ofertas de ropa guardan `actualizado_en`; si la última sincronización exitosa tiene **más de 24 horas**, se excluyen del ranking para no recomendar precios viejos.
-- **Qué ve el usuario:** el ranking sigue funcionando con los demás proveedores. Si las ofertas de ropa están desactualizadas o excluidas, el frontend lo indica con un aviso ("precios de Tienda de ropa sin actualizar desde HH:MM"). La capacidad que publicamos no falla por su caída.
-- **Si cambian el contrato:** el adaptador rechaza respuestas que no validan, registra el error con el `trace_id` y **no pisa** los datos buenos que ya teníamos. El test de contrato en CI detecta el cambio antes de que llegue a producción, y se abre un issue en su repo.
-- **Test de contrato:** contra su OpenAPI publicado (validación de esquema de las respuestas reales del entorno que nos den), más tests del adaptador contra un servidor falso con los ejemplos de su contrato.
+- **Qué ve el usuario:** el ranking sigue funcionando con los demás proveedores. Si las ofertas de ropa están desactualizadas o excluidas, el frontend lo indica con un aviso ("precios de Tienda de ropa sin actualizar desde HH:MM"). Para eso la respuesta tiene que exponer la fecha de actualización de cada oferta, que **hoy el contrato v1 no trae**: hay que agregar `actualizado_en` por oferta, un cambio compatible que se registra en [ADR-008](ADR-008-contrato-propio.md) cuando se implemente. La capacidad que publicamos no falla por su caída.
+- **Test de contrato y cambios en su API:** validamos el esquema de sus respuestas reales contra su OpenAPI publicado y probamos el adaptador contra un servidor falso con los ejemplos de su contrato. Si una respuesta no valida, el adaptador la rechaza, registra el error con el `trace_id`, **no pisa** los datos buenos que ya teníamos y abrimos un issue en su repo.
 
 ## Por qué
 
@@ -64,10 +66,4 @@ Todavía no hay mediciones. Cuando esté implementado:
 - **Si su contrato ofrece webhooks o eventos**, pasar a la opción 3 y dejar el pull como respaldo.
 - **Si su catálogo es tan grande que bajarlo completo cada 5 min es caro**, pedir paginación incremental por fecha de modificación o bajar la frecuencia.
 - **Si su API resulta inestable** (muchas aperturas del circuit breaker), alargar el intervalo y avisarles por issue con la evidencia.
-- **Si el profe considera que el pull periódico no es "consumo en el flujo principal"**, consultar su catálogo en el momento para el detalle de producto, manteniendo el ranking sobre la copia local.
-
-## Pendiente
-
-- [ ] Link al contrato publicado del grupo de ropa y versión vigente.
-- [ ] Ajustar el mapeo de campos y los valores por defecto a su contrato real.
-- [ ] Entorno accesible (URL y credenciales) para el test de contrato.
+- **Si la cátedra considera que el pull periódico no es "consumo en el flujo principal"**, consultar su catálogo en el momento para el detalle de producto, manteniendo el ranking sobre la copia local.

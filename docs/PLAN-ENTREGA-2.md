@@ -11,8 +11,8 @@ Reparto del trabajo entre los 4 integrantes para llegar a la Entrega 2 con lo ob
 | Integrante | Parte | Estado |
 |---|---|---|
 | 1 | Backend del dominio | ✅ Terminado: `proveedores-service` + tests unitarios + tests de integración + ADR D2 |
-| 2 | Plataforma y observabilidad | ⏳ Pendiente |
-| 3 | Contrato y documentación base | ⏳ Pendiente |
+| 2 | Plataforma y observabilidad | ✅ Terminado: gateway con balanceo, paquete de observabilidad, traza end-to-end en Jaeger, compose + ADR D11 y D12 (en `main`) |
+| 3 | Contrato y documentación base | ✅ Terminado: OpenAPI v1, README, SPEC, ARCHITECTURE + ADR D1, D3 y D8 (PR de `docs/base`) |
 | 4 | Decisiones, mediciones y entrega | ✅ Plantilla ADR, D5, D6, D7, D9, D10, D13, test de carga con k6 y guion de la demo. Falta: contrato del grupo de ropa (D9) y el tag `entrega-2` |
 
 Cada uno actualiza su fila cuando termina.
@@ -29,16 +29,16 @@ Cada uno actualiza su fila cuando termina.
 - [x] Al menos un servicio operativo (`proveedores-service`)
 - [x] Capacidad compartida funcionando, ya sin mock
 - [x] Un almacenamiento integrado al flujo (PostgreSQL)
-- [ ] Logs estructurados **y correlacionados** con `trace_id`
-- [ ] Primera traza distribuida del flujo principal (gateway → servicio → Postgres)
-- [ ] Un solo comando (`docker compose up`) levanta todo, sin secretos en el repo
+- [x] Logs estructurados **y correlacionados** con `trace_id`
+- [x] Primera traza distribuida del flujo principal (gateway → servicio → Postgres)
+- [x] Un solo comando (`docker compose up`) levanta todo, sin secretos en el repo
 
 **Documentación (obligatorio)**
-- [ ] ADR nuevos: D2 ✅, D6, D7, D9, D10, D12 y D13
-- [ ] D1, D3 y D5 validados; D11 en su primera versión; D8
-- [ ] `README.md` con manual de uso, `SPEC.md` y `docs/ARCHITECTURE.md` con diagramas
-- [ ] Contrato OpenAPI v1 en `docs/contracts/`
-- [ ] Anunciar bonus o dejar escrito que no hacemos ninguno
+- [x] ADR nuevos: D2, D6, D7, D9, D10, D12 y D13
+- [x] D1 y D3 validados; D5 publicado por primera vez (no se entregó en la 1); D11 en su primera versión; D8
+- [x] `README.md` con manual de uso, `SPEC.md` y `docs/ARCHITECTURE.md` con diagramas
+- [x] Contrato OpenAPI v1 en `docs/contracts/`
+- [x] Anunciar bonus o dejar escrito que no hacemos ninguno (no tomamos ninguno: README y ARCHITECTURE)
 - [ ] Tag `entrega-2` y demo de 5 minutos ensayada
 
 ## Lo que ya está decidido (no se toca hasta el viernes)
@@ -134,13 +134,14 @@ Después:
 Rama: `docs/adrs`
 
 Hoy:
-- [ ] `docs/adr/TEMPLATE.md` con la plantilla (contexto, opciones evaluadas, decisión, por qué, consecuencias aceptadas, cómo lo medimos, qué nos haría cambiar de idea). Usá [ADR-002](adr/ADR-002-arquitectura-interna.md) como ejemplo.
+- [x] `docs/adr/TEMPLATE.md` con la plantilla (contexto, opciones evaluadas, decisión, por qué, consecuencias aceptadas, cómo lo medimos, qué nos haría cambiar de idea). Usá [ADR-002](adr/ADR-002-arquitectura-interna.md) como ejemplo.
 - [ ] Conseguir el contrato del grupo de ropa y escribirles a los profes (ver abajo)
-- [ ] ADR D5 (comunicación), D6 (búsqueda), D7 (caché), D9 (consumo de ropa) y D10 (resiliencia)
+- [x] ADR D5 (comunicación), D6 (búsqueda), D7 (caché), D9 (consumo de ropa) y D10 (resiliencia)
 
 Viernes:
-- [ ] Test de carga corto con k6 contra el endpoint: RPS y p95 reales para el ADR D13 (capacidad y costos)
-- [ ] Guion de la demo, checklist final y tag `entrega-2`
+- [x] Test de carga corto con k6 contra el endpoint: RPS y p95 reales para el ADR D13 (capacidad y costos)
+- [x] Guion de la demo y checklist final ([`DEMO-ENTREGA-2.md`](DEMO-ENTREGA-2.md))
+- [ ] Tag `entrega-2` (después de mergear los PRs y ensayar)
 
 ## Cronograma
 

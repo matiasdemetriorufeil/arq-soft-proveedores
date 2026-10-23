@@ -7,7 +7,7 @@
 
 ## Contexto
 
-La consigna (2.6) pide que una entidad del dominio tenga búsqueda **con un motor de búsqueda** (un `LIKE` en SQL no cuenta), con paginación, filtros relevantes para el dominio, al menos un criterio de orden, un índice sincronizado con los cambios y un **retraso máximo tolerable** definido. El profe pidió que esas demoras sean cortas.
+La consigna (2.6) pide que una entidad del dominio tenga búsqueda **con un motor de búsqueda** (un `LIKE` en SQL no cuenta), con paginación, filtros relevantes para el dominio, al menos un criterio de orden, un índice sincronizado con los cambios y un **retraso máximo tolerable** definido. La cátedra pidió que esas demoras sean cortas.
 
 La capacidad que publicamos exige conocer el SKU (`PAN-550W-MONO`). Un comprador real no empieza por el SKU: empieza por "panel 550 W", "inversor híbrido" o "baterías con stock en al menos tres proveedores". La búsqueda es el paso previo natural a pedir el ranking, y es lo que va a usar el frontend.
 
@@ -21,7 +21,7 @@ La capacidad que publicamos exige conocer el SKU (`PAN-550W-MONO`). Un comprador
 
 **Meilisearch**, con un índice de **productos** alimentado por `proveedores-service`, que es el dueño de `productos` y `ofertas` hoy ([ADR-001](ADR-001-limites-de-los-servicios.md)).
 
-**Qué se indexa:** un documento por producto, con lo que se busca y lo que se filtra ya calculado (valores ilustrativos):
+**Qué se indexa:** un documento por producto, con lo que se busca y lo que se filtra ya calculado. Así quedaría `PAN-550W-MONO` con los datos del seed (`002_seed.sql`): `precio_min` es el menor precio unitario entre las ofertas **con stock**, por eso es el del proveedor 3 y no el de 189 497,29 del proveedor 1, que tiene stock 0.
 
 ```json
 {
@@ -29,10 +29,14 @@ La capacidad que publicamos exige conocer el SKU (`PAN-550W-MONO`). Un comprador
   "nombre": "Panel solar 550 W monocristalino",
   "categoria": "paneles",
   "unidad": "unidad",
-  "precio_min": 118500.00,
-  "proveedores_con_stock": 2,
-  "stock_total": 412,
-  "proveedores": ["Andes Solar SRL", "Helios Importaciones SRL"],
+  "precio_min": 189573.99,
+  "proveedores_con_stock": 9,
+  "stock_total": 1667,
+  "proveedores": [
+    "Bornes y Cables SA", "Cordoba Energia SA", "Distribuidora del Sol SRL",
+    "Electro Mayorista Norte SA", "Fotovoltaica Pampeana SRL", "Grupo Litio SA",
+    "Helios Importaciones SRL", "Ingenieria Renovable SA", "Juarez Materiales Electricos SRL"
+  ],
   "actualizado_en": "2026-10-23T14:02:11Z"
 }
 ```

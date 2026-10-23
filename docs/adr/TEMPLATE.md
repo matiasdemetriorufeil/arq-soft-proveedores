@@ -9,15 +9,18 @@ ADR-002-arquitectura-interna.md.
 Reglas:
 - Un archivo por decisión: ADR-NNN-titulo-en-kebab-case.md, con NNN igual al
   número de la decisión de la consigna (D5 → ADR-005).
-- Media carilla a una carilla. Si hace falta más, probablemente son dos decisiones.
-- El revisor automático compara el ADR con el código. Lo que no esté
-  implementado va con Estado "propuesto" y dice qué falta.
+- El complemento pide media carilla por decisión. Escribir lo más corto que
+  sostenga la decisión y su evidencia; si un ADR se va de dos carillas, revisar
+  si no son dos decisiones o si hay detalle que va en otro documento enlazado.
+- El revisor automático de la cátedra (ver el complemento de la consigna) compara el ADR
+  con el código. Lo que no esté implementado va con Estado "propuesto" y dice
+  qué falta; si una parte está implementada y otra no, se usa el estado mixto.
 - Si la decisión cambia, no se borra: este ADR pasa a "reemplazado por ADR-XXX"
   y el nuevo dice a cuál reemplaza y por qué.
 - Borrar estos comentarios al usarla.
 -->
 
-- **Estado:** propuesto | aceptado | aceptado e implementado | reemplazado por [ADR-XXX](ADR-XXX-....md)
+- **Estado:** propuesto | aceptado | aceptado e implementado | aceptado e implementado para X; propuesto para Y | reemplazado por [ADR-XXX](ADR-XXX-....md)
 - **Fecha:** AAAA-MM-DD
 - **Entrega:** N (DD/MM)
 - **Decisión de la consigna:** DN. Copiar los aspectos que la consigna pide justificar para esta decisión (sección 5).

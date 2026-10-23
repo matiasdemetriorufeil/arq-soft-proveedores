@@ -234,7 +234,9 @@ Detalle y límites en [ADR-011](adr/ADR-011-observabilidad.md).
 | D10 | Resiliencia | [ADR-010](adr/ADR-010-resiliencia.md) | aceptado (gateway y servicio); resto propuesto |
 | D11 | Observabilidad | [ADR-011](adr/ADR-011-observabilidad.md) | aceptado para logs y trazas; resto propuesto |
 | D12 | Balanceo de carga | [ADR-012](adr/ADR-012-balanceo-de-carga.md) | aceptado |
-| D13 | Capacidad y costos | [ADR-013](adr/ADR-013-capacidad-y-costos.md) | aceptado (test de carga del 23/10) |
+| D13 | Capacidad y costos | [ADR-013](adr/ADR-013-capacidad-y-costos.md) | aceptado (test de carga del 23/10: 1 200 req/s sostenidas) |
+
+**Bonus:** el grupo no toma ninguno (anunciado en la Entrega 2, consigna sección 7).
 
 La decisión D4 (consistencia y concurrencia) todavía no tiene documento; la
 plantilla para los ADR nuevos está en [`adr/TEMPLATE.md`](adr/TEMPLATE.md).
@@ -265,15 +267,18 @@ grupal pide actualizar.
 
 - **Sin métricas, tablero ni alertas.** Solo hay logs y trazas.
 - **Sin control de tráfico.** El gateway valida la clave pero no limita requests.
-- **El gateway colapsa bajo sobrecarga.** Usa el transporte HTTP por defecto de Go
-  (2 conexiones ociosas por réplica): por encima de ~1 600 req/s atiende menos y
-  devuelve `504` en lugar de solo ponerse más lento
-  ([ADR-013](adr/ADR-013-capacidad-y-costos.md)).
+- **El gateway es el cuello de botella y puede colapsar bajo sobrecarga.** Es el
+  componente que más CPU gasta (40 % del total por request) y usa el transporte HTTP
+  por defecto de Go, que reutiliza solo 2 conexiones por réplica; con el transporte
+  ajustado, su CPU bajó un 31 % en el experimento. La capacidad declarada es de
+  1 200 req/s; desde ~1 600 req/s el resultado varía entre corridas, y una rampa
+  colapsó en ese escalón con `504` ([ADR-013](adr/ADR-013-capacidad-y-costos.md)).
 - **Sin pipeline de CI** que corra los tests en cada push.
 - **PostgreSQL es un punto único de falla.** El balanceo cubre al servicio, no a
   la base.
-- **Jaeger guarda las trazas en memoria y se exporta el 100 %**, sin muestreo:
-  alcanza para la demo, no para carga real.
+- **Jaeger guarda las trazas en memoria, sin tope, y se exporta el 100 %**, sin
+  muestreo: alcanza para la demo, no para carga real. Llegó a 1,6 GB en una rampa
+  de 4 minutos del test de carga ([ADR-013](adr/ADR-013-capacidad-y-costos.md)).
 - **El gateway traza sus propias rutas de salud** y llena Jaeger de sondeos.
 - **Los sondeos de salud dominan los logs** de las réplicas.
 - **La detección de una réplica caída sin tráfico tarda hasta un intervalo de
