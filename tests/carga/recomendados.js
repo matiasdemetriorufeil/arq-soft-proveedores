@@ -5,13 +5,18 @@
 
 import http from 'k6/http';
 import { check } from 'k6';
+import { Counter } from 'k6/metrics';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const API_KEY = __ENV.API_KEY || 'clave-de-desarrollo';
 // Requests por segundo de cada escalón, separadas por coma.
 const ESCALONES = (__ENV.ESCALONES || '50,100,200,400,800,1200,1600')
   .split(',')
-  .map((s) => parseInt(s.trim(), 10));
+  .map((s) => parseInt(s.trim(), 10))
+  .filter((n) => Number.isFinite(n) && n > 0);
+if (ESCALONES.length === 0) {
+  throw new Error('ESCALONES tiene que ser una lista de enteros positivos, por ejemplo "100,200"');
+}
 const DURACION_ESCALON = __ENV.DURACION_ESCALON || '30s';
 
 // Los 30 SKU del seed (002_seed.sql): la carga se reparte entre productos
@@ -25,9 +30,21 @@ const SKUS = [
   'FUS-DC-15A', 'SECC-DC-32A', 'TAB-STRING-2E', 'MED-BIDIR', 'MON-WIFI',
 ];
 
-// Cada escalón sube en 5 s y se sostiene DURACION_ESCALON: el ramping
-// arrival-rate mantiene la tasa aunque el sistema se ponga lento (modelo
-// abierto), que es lo que pasa con un consumidor real.
+// Un contador por resultado, para que el resumen diga qué error fue y no solo
+// cuántos: status 0 es un error del lado de k6 (conexión o timeout propio).
+const respuestas = {
+  200: new Counter('respuestas_200'),
+  502: new Counter('respuestas_502'),
+  503: new Counter('respuestas_503'),
+  504: new Counter('respuestas_504'),
+  0: new Counter('respuestas_sin_respuesta'),
+};
+const otras = new Counter('respuestas_otras');
+
+// Con un solo escalón la corrida arranca directamente en esa tasa. Con varios,
+// cada uno sube en 5 s desde el anterior y se sostiene DURACION_ESCALON. El
+// ramping arrival-rate mantiene la tasa aunque el sistema se ponga lento
+// (modelo abierto), que es lo que pasa con un consumidor real.
 const stages = [];
 for (const rps of ESCALONES) {
   stages.push({ target: rps, duration: '5s' });
@@ -48,6 +65,8 @@ export const options = {
   thresholds: {
     http_req_failed: ['rate<0.01'],
     http_req_duration: ['p(95)<300'],
+    // Si k6 no llega a lanzar la tasa pedida, la corrida no midió lo que dice.
+    dropped_iterations: ['count<1'],
   },
   summaryTrendStats: ['avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
@@ -59,5 +78,6 @@ export default function () {
     `${BASE_URL}/api/v1/proveedores/recomendados?producto=${sku}&cantidad=${cantidad}&limite=5`,
     { headers: { 'X-API-Key': API_KEY }, tags: { name: 'recomendados' } },
   );
+  (respuestas[res.status] || otras).add(1);
   check(res, { 'status 200': (r) => r.status === 200 });
 }

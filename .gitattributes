@@ -1,0 +1,3 @@
+# Los scripts de shell se ejecutan con bash también en Windows (Git Bash): con
+# finales de línea CRLF fallan, así que se guardan siempre con LF.
+*.sh text eol=lf

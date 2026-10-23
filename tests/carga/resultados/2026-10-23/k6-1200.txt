@@ -1,0 +1,45 @@
+
+
+  █ THRESHOLDS 
+
+    dropped_iterations
+    ✗ 'count<1' count=607
+
+    http_req_duration
+    ✓ 'p(95)<300' p(95)=124.86ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 41382   1182.318971/s
+    checks_succeeded...: 100.00% 41382 out of 41382
+    checks_failed......: 0.00%   0 out of 41382
+
+    ✓ status 200
+
+    CUSTOM
+    respuestas_200.................: 41382  1182.318971/s
+
+    HTTP
+    http_req_duration..............: avg=29.64ms med=9.08ms p(90)=88.1ms  p(95)=124.86ms p(99)=199.89ms max=455.6ms 
+      { expected_response:true }...: avg=29.64ms med=9.08ms p(90)=88.1ms  p(95)=124.86ms p(99)=199.89ms max=455.6ms 
+    http_req_failed................: 0.00%  0 out of 41382
+    http_reqs......................: 41382  1182.318971/s
+
+    EXECUTION
+    dropped_iterations.............: 607    17.342507/s
+    iteration_duration.............: avg=30.13ms med=9.5ms  p(90)=89.23ms p(95)=125.97ms p(99)=201.49ms max=455.71ms
+    iterations.....................: 41382  1182.318971/s
+    vus............................: 15     min=1          max=172
+    vus_max........................: 196    min=103        max=196
+
+    NETWORK
+    data_received..................: 37 MB  1.0 MB/s
+    data_sent......................: 7.3 MB 210 kB/s
+
+
+
+time="2026-10-23T19:38:41Z" level=error msg="thresholds on metrics 'dropped_iterations' have been crossed"
