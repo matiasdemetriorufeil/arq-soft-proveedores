@@ -4,16 +4,18 @@ Servicio en Go que publica la capacidad **proveedores recomendados** que consume
 
 - Arquitectura hexagonal (puertos y adaptadores). Ver [ADR-002](../../docs/adr/ADR-002-arquitectura-interna.md).
 - Almacenamiento: PostgreSQL (pgx v5). Las migraciones están embebidas en el binario y se aplican al arrancar.
-- Logs JSON (`log/slog`), correlacionados con `X-Request-ID`.
+- Logs JSON (`log/slog`), correlacionados con `X-Request-ID` y con `trace_id`.
+- Trazas OpenTelemetry: continúa la del gateway y abre un span por consulta a Postgres. Ver [`docs/observabilidad/README.md`](../../docs/observabilidad/README.md).
 
 ## Estructura
 
 ```
-cmd/server/                 arranque, configuración y apagado ordenado
+cmd/server/                 arranque, configuración, trazas y apagado ordenado
+cmd/sonda/                  healthcheck del contenedor (pregunta por /readyz)
 internal/domain/            reglas de negocio puras (Oferta, Recomendacion, Rankear)
 internal/ports/             interfaces que el núcleo necesita (OfertasRepo, Salud)
 internal/adapters/http/     endpoint, API key, request log, problem+json, health checks
-internal/adapters/postgres/ pool pgx, consulta de ofertas, aplicación de migraciones
+internal/adapters/postgres/ pool pgx, consulta de ofertas, migraciones, span por consulta
 migrations/                 001_init.sql (esquema) y 002_seed.sql (datos de demo), embebidos
 ```
 
@@ -28,6 +30,7 @@ Todo se configura por variables de entorno; no hay secretos en el repo.
 | `DATABASE_URL` | sí | URL de PostgreSQL, por ejemplo `postgres://postgres:dev@localhost:5432/postgres?sslmode=disable` |
 | `API_KEYS` | sí | Claves aceptadas en `X-API-Key`, separadas por coma. Si está vacía, el servicio no arranca. |
 | `PORT` | no | Puerto HTTP. Por defecto `8080`. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | Colector al que exportar las trazas, por ejemplo `http://jaeger:4318`. Vacío: el servicio arranca igual y las trazas quedan en no-op. |
 
 ## Cómo correrlo
 
@@ -46,15 +49,17 @@ Al arrancar crea las tablas y carga el seed (10 proveedores, 30 productos, 170 o
 
 ### Con Docker
 
+El contexto del build es la **raíz del repo**, no este directorio: el módulo depende de `pkg/observabilidad` por ruta relativa y las dos carpetas tienen que entrar en el contexto.
+
 ```bash
-docker build -t proveedores-service services/proveedores-service
+docker build -f services/proveedores-service/Dockerfile -t proveedores-service .
 docker run --rm -p 8080:8080 \
   -e DATABASE_URL="postgres://postgres:dev@host.docker.internal:5432/postgres?sslmode=disable" \
   -e API_KEYS="dev" \
   proveedores-service
 ```
 
-La imagen es multi-stage: compila con `golang:1.26-alpine` y corre sobre `distroless/static` como usuario no root.
+La imagen es multi-stage: compila con `golang:1.26-alpine` y corre sobre `distroless/static` como usuario no root. Trae un segundo binario, `/sonda`, que es el healthcheck del contenedor: la imagen no tiene shell ni cliente HTTP con el que preguntar por `/readyz`.
 
 ### Tests
 
@@ -72,6 +77,11 @@ go test -tags=integration ./internal/adapters/postgres/ -v
 
 - Los tests están en archivos `*_integration_test.go` con el build tag `integration`, así que `go test ./...` no los compila.
 - La primera corrida descarga la imagen `postgres:16-alpine` y tarda más.
+- **Si falla con `reaper: ... "Started" matched 0 times`**, el problema es el contenedor reaper (Ryuk) de testcontainers, no los tests: la espera de readiness de testcontainers-go v0.44.0 no reconoce el arranque de `ryuk:0.14.0` en algunos entornos de Docker Desktop. Los tests pasan desactivándolo, y los contenedores de la corrida se limpian igual al terminar:
+
+  ```bash
+  TESTCONTAINERS_RYUK_DISABLED=true go test -tags=integration ./internal/adapters/postgres/ -v
+  ```
 - Cubren las migraciones embebidas (carga inicial e idempotencia), las consultas de ofertas (SKU con ofertas, producto sin ofertas, SKU inexistente), `Ping` y el comportamiento con la base caída.
 - Los contenedores se eliminan al terminar, aunque los tests fallen. Si Docker no está disponible, la corrida falla con un mensaje que lo indica.
 

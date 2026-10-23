@@ -37,6 +37,10 @@ func NuevoPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("DATABASE_URL inválida: %w", err)
 	}
 	cfg.ConnConfig.ConnectTimeout = TimeoutConsulta
+	// Instrumenta el acceso a la base: cada consulta —y cada intento de conexión
+	// que haga el pool— abre su span dentro de la traza de la request (ver
+	// tracer.go).
+	cfg.ConnConfig.Tracer = NuevoTracer(nil)
 	return pgxpool.NewWithConfig(ctx, cfg)
 }
 

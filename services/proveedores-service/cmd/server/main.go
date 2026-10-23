@@ -14,6 +14,9 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"github.com/matiasdemetriorufeil/arq-soft-proveedores/pkg/observabilidad"
 	httpadapter "github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/internal/adapters/http"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/internal/adapters/postgres"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/migrations"
@@ -55,8 +58,18 @@ func cargarConfig() (config, error) {
 	return c, nil
 }
 
+// rutasDeSalud no se trazan: el healthcheck del contenedor pega a /readyz y el
+// gateway a /healthz cada pocos segundos, así que trazarlas llenaría Jaeger de
+// trazas que no cuentan ningún flujo. Están acá, donde se arma el servidor, para
+// no tocar el adaptador HTTP que las expone.
+var rutasDeSalud = map[string]bool{"/healthz": true, "/readyz": true}
+
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", nombreServicio)
+	// El logger compartido agrega trace_id y span_id a toda línea que se emita
+	// con el contexto de la request: es la correlación entre los logs y Jaeger.
+	log := observabilidad.NuevoLogger(nombreServicio)
+	// El default también lo usa el paquete de observabilidad para avisar de los
+	// fallos del exportador de trazas.
 	slog.SetDefault(log)
 
 	if err := run(log); err != nil {
@@ -74,6 +87,23 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Antes del pool: así el tracer de las consultas ya encuentra puesto el
+	// proveedor global de trazas. Sin colector OTLP configurado esto no falla,
+	// solo deja las trazas en no-op.
+	apagarTrazas, err := observabilidad.IniciarTrazas(ctx, nombreServicio)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// El contexto de apagado es nuevo a propósito: el de la señal ya está
+		// cancelado y los spans pendientes igual tienen que poder salir.
+		apagarCtx, cancel := context.WithTimeout(context.Background(), timeoutApagado)
+		defer cancel()
+		if err := apagarTrazas(apagarCtx); err != nil {
+			log.Warn("no se pudieron vaciar las trazas pendientes", "error", err.Error())
+		}
+	}()
+
 	pool, err := postgres.NuevoPool(ctx, cfg.databaseURL)
 	if err != nil {
 		return err
@@ -87,14 +117,30 @@ func run(log *slog.Logger) error {
 	}
 
 	repo := postgres.NuevoRepo(pool)
-	srv := &http.Server{
-		Addr: ":" + cfg.port,
-		Handler: httpadapter.NuevoHandler(httpadapter.Config{
+
+	// otelhttp va por fuera del handler que arma el adaptador: continúa la traza
+	// que viene en el `traceparent` del gateway y abre el span del servidor antes
+	// de que corra el middleware de log, que por eso emite su línea con trace_id.
+	handler := otelhttp.NewHandler(
+		httpadapter.NuevoHandler(httpadapter.Config{
 			Repo:    repo,
 			Salud:   repo,
 			APIKeys: cfg.apiKeys,
 			Logger:  log,
 		}),
+		// El nombre del span lo arma el formateador de abajo, no esta etiqueta.
+		"",
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}),
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			return !rutasDeSalud[r.URL.Path]
+		}),
+	)
+
+	srv := &http.Server{
+		Addr:              ":" + cfg.port,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
