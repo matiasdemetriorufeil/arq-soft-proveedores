@@ -68,7 +68,7 @@ estados.
 |---|---|
 | **RN-13** | **Sin sobreventa:** el stock reservado nunca supera el disponible, aun con reservas simultáneas. Ninguna reserva se pierde ni se duplica. |
 | **RN-14** | **Punto de reorden:** cuando el stock de un producto baja de su mínimo configurado, corresponde generar una orden de reposición. Solo una orden abierta por producto. |
-| **RN-15** | Una orden de reposición pasa por los estados `BORRADOR → SOLICITADA → CONFIRMADA`, en ese orden y sin saltear estados. |
+| **RN-15** | Una orden de reposición pasa por los estados `BORRADOR → SOLICITADA → CONFIRMADA`, en ese orden y sin saltear estados. Desde `SOLICITADA` también puede pasar a `VENCIDA` (el proveedor la dio de baja por falta de pago) o a `EN_REVISION` (el proveedor informa un estado que no conocemos), y desde `VENCIDA` a `EN_REVISION` (el pago llegó después del vencimiento). `EN_REVISION` se resuelve a mano ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)). |
 | **RN-16** | La orden de reposición se dirige al proveedor con **menor costo total** para la cantidad a reponer (RN-01 a RN-05). |
 
 ### Importación y catálogo — propuesto
@@ -78,7 +78,7 @@ estados.
 | **RN-17** | Cada proveedor entrega su lista en su propio formato; el sistema la normaliza a una forma única antes de usarla. |
 | **RN-18** | Los códigos de producto de cada proveedor se mapean a un único producto del catálogo maestro. Un código sin mapear no entra al ranking. |
 | **RN-19** | Un cambio de precios o stock de un proveedor se refleja en la consulta de recomendados dentro de un retraso máximo definido (a fijar en D5/D6). |
-| **RN-20** | El catálogo de ropa se trata como un proveedor más. Si su sistema no responde, el sistema sigue funcionando sin sus ofertas y lo informa. |
+| **RN-20** | El catálogo de ropa (FAV) se trata como un proveedor más. Si su sistema no responde, el sistema sigue funcionando con sus últimas ofertas válidas, informa desde cuándo no se actualizan, y las deja de usar si tienen más de 24 horas ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)). |
 
 ## 3. Historias de usuario y criterios de aceptación
 
@@ -189,13 +189,13 @@ productos, 170 ofertas) y se comprobaron contra el cálculo de RN-01 a RN-05.
 
 - **CA-14.1** *Dado* un producto cuyo stock baja de su mínimo, *entonces* se genera una orden en estado `BORRADOR` con el proveedor de menor costo total para la cantidad a reponer (RN-14, RN-16).
 - **CA-14.2** *Dado* una orden abierta para ese producto, *entonces* no se genera otra.
-- **CA-14.3** *Dado* una orden, *entonces* solo puede pasar a `SOLICITADA` desde `BORRADOR` y a `CONFIRMADA` desde `SOLICITADA` (RN-15).
+- **CA-14.3** *Dado* una orden, *entonces* solo puede pasar a `SOLICITADA` desde `BORRADOR`; a `CONFIRMADA` o `VENCIDA` desde `SOLICITADA`; y a `EN_REVISION` desde `SOLICITADA` o `VENCIDA` (RN-15).
 
 #### HU-15 — Comprar al catálogo de ropa como a un proveedor más · propuesto
 *Como operador de compras, quiero que el catálogo del grupo de ropa participe del ranking y del stock, para comparar sus precios con los demás.*
 
 - **CA-15.1** *Dado* el catálogo de ropa disponible, *entonces* sus productos aparecen entre los candidatos del ranking y su compra impacta en el stock.
-- **CA-15.2** *Dado* que su sistema no responde, *entonces* el ranking sigue funcionando sin esas ofertas y el usuario ve que están temporalmente fuera (RN-20).
+- **CA-15.2** *Dado* que su sistema no responde, *entonces* el ranking sigue funcionando con sus últimas ofertas válidas, el usuario ve desde cuándo no se actualizan, y pasadas 24 horas quedan fuera del ranking (RN-20).
 - **CA-15.3** *Dado* un cambio incompatible en su contrato, *entonces* un test de contrato lo detecta.
 
 #### HU-16 — Buscar productos y proveedores con filtros · propuesto

@@ -29,7 +29,7 @@ Los comandos están probados el 23/10 contra el sistema levantado con
 - [x] `README.md` con manual de uso, `SPEC.md` y `docs/ARCHITECTURE.md` con diagramas
 - [x] Contrato OpenAPI v1 en `docs/contracts/`
 - [x] Bonus: anunciado que no tomamos ninguno (README y ARCHITECTURE)
-- [ ] Contrato del grupo de ropa conseguido (bloquea cerrar D9)
+- [x] Contrato del grupo de ropa conseguido: FAV v1.1.0, copia en `docs/contracts/consumidos/` y D9 diseñado sobre él
 
 **Antes del tag**
 
@@ -166,5 +166,5 @@ docker compose start proveedores-service-1
 | ¿Qué hace el sistema si `/readyz` da 503? | En compose solo marca el contenedor `unhealthy`; el reparto lo decide el sondeo de `/healthz` del gateway | ADR-010 |
 | ¿Cuál es el límite del sistema? | La CPU. El gateway es el que más gasta (40 % del total por request) y reutiliza solo 2 conexiones por réplica; con el pool ajustado, su CPU baja 31 % y 2 000 req/s entran en el objetivo de latencia y errores | ADR-013 |
 | ¿Dónde están la mensajería, la búsqueda y la caché? | Diseñadas y marcadas como propuestas; se implementan para la presentación | ADR-005, 006 y 007 |
-| ¿Y el grupo de ropa? | Sincronización periódica con capa anticorrupción; falta su contrato | ADR-009 |
+| ¿Y el grupo de ropa? | FAV: sincronizamos su catálogo cada 5 min como un proveedor más, y la reposición le hace pedidos reales que seguimos por su webhook firmado. Está diseñado, no implementado | ADR-009 |
 | ¿Toman bonus? | No, y quedó anunciado en esta entrega | README |

@@ -100,3 +100,5 @@ context:
 
 **Manual checks:**
 - Comandos de `docs/DEMO-ENTREGA-2.md` en PowerShell y en bash: 200, 404, 401 y el mismo `trace_id` en los logs del gateway y de la réplica (probado el 23/10).
+
+**Pasada 3** (adversarial, D9 reescrito sobre el contrato real de FAV v1.1.0, 9 hallazgos): `A_VERIFICAR` viene de `VENCIDO` (se agregó `VENCIDA → EN_REVISION` en el ADR y en RN-15/CA-14.3); `Idempotency-Key` por intento de envío y límite de 48 h; no hay "siguiente proveedor" para una prenda que solo vende FAV; el webhook entraba por el gateway, contra la consigna 4.1 (ahora lo recibe `stock-service` directo); ADR-001 y ADR-002 sin actualizar; alcance real del mock (sin estado); webhook mezclado con los eventos de nuestra mensajería en ADR-005; `/healthz` y `/readyz` también sin API key; dudas del contrato por issue en su repo. → todos corregidos.

@@ -41,7 +41,7 @@ Código: [`proxy.go`](../../services/api-gateway/internal/gateway/proxy.go), [`b
 ### Síncrono (propuesto)
 
 - `stock-service → proveedores-service`: `GET` de la misma capacidad por la red interna, con timeout de **1 s** y hasta **2 reintentos** con espera exponencial (100 ms y 300 ms) y jitter, porque es un `GET` idempotente. Si no responde, la orden de reposición queda en `BORRADOR` sin proveedor sugerido y se reintenta en el siguiente ciclo.
-- `import-service → grupo de ropa`: se define en [ADR-009](ADR-009-consumo-proveedor.md).
+- `import-service → FAV` (catálogo) y `stock-service → FAV` (pedidos): timeout de 3 s y hasta 3 reintentos solo ante timeout, `429`, `500` o `503`; los reintentos de un pedido repiten su `Idempotency-Key`. Detalle en [ADR-009](ADR-009-consumo-proveedor.md).
 
 ### Asíncrono (propuesto, RabbitMQ)
 
@@ -55,6 +55,10 @@ Código: [`proxy.go`](../../services/api-gateway/internal/gateway/proxy.go), [`b
 - **Entrega al menos una vez** y **consumidor idempotente:** el consumidor registra `evento_id` en una tabla `eventos_procesados` dentro de la misma transacción que aplica el efecto; un duplicado choca con la clave primaria y se descarta con `ack`.
 - **Mensajes fallidos:** hasta **3 intentos** con espera creciente; después van a una cola `*.dlq` (dead-letter exchange) con el error en un header. Un mensaje que no se puede parsear va directo a la DLQ, sin reintentos.
 - **Retraso aceptable** entre la publicación y el efecto: **menos de 5 s** en condiciones normales.
+
+### Avisos entrantes de terceros (propuesto)
+
+El webhook `pedido.actualizado` de FAV llega por HTTP a `stock-service`, directo y no a través del gateway, y **no es un evento de nuestra mensajería**: tiene el formato de FAV (`eventoId`, `ocurridoEn`, `pedido`), no pasa por RabbitMQ ni por nuestro outbox, y el sobre común de arriba no se le aplica. Comparte una sola regla con nuestros consumidores: se deduplica por su propio id (`eventoId`) antes de aplicar el efecto. Detalle en [ADR-009](ADR-009-consumo-proveedor.md).
 
 ## Por qué
 

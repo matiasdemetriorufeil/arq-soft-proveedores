@@ -13,7 +13,7 @@ Reparto del trabajo entre los 4 integrantes para llegar a la Entrega 2 con lo ob
 | 1 | Backend del dominio | ✅ Terminado: `proveedores-service` + tests unitarios + tests de integración + ADR D2 |
 | 2 | Plataforma y observabilidad | ✅ Terminado: gateway con balanceo, paquete de observabilidad, traza end-to-end en Jaeger, compose + ADR D11 y D12 (en `main`) |
 | 3 | Contrato y documentación base | ✅ Terminado: OpenAPI v1, README, SPEC, ARCHITECTURE + ADR D1, D3 y D8 (PR de `docs/base`) |
-| 4 | Decisiones, mediciones y entrega | ✅ Plantilla ADR, D5, D6, D7, D9, D10, D13, test de carga con k6 y guion de la demo. Falta: contrato del grupo de ropa (D9) y el tag `entrega-2` |
+| 4 | Decisiones, mediciones y entrega | ✅ Plantilla ADR, D5, D6, D7, D9, D10, D13, test de carga con k6 y guion de la demo. D9 diseñado sobre el contrato de FAV v1.1.0. Falta: el tag `entrega-2` |
 
 Cada uno actualiza su fila cuando termina.
 
@@ -135,7 +135,8 @@ Rama: `docs/adrs`
 
 Hoy:
 - [x] `docs/adr/TEMPLATE.md` con la plantilla (contexto, opciones evaluadas, decisión, por qué, consecuencias aceptadas, cómo lo medimos, qué nos haría cambiar de idea). Usá [ADR-002](adr/ADR-002-arquitectura-interna.md) como ejemplo.
-- [ ] Conseguir el contrato del grupo de ropa y escribirles a los profes (ver abajo)
+- [x] Conseguir el contrato del grupo de ropa (FAV v1.1.0, en `docs/contracts/consumidos/`)
+- [ ] Escribirles a los profes (ver abajo)
 - [x] ADR D5 (comunicación), D6 (búsqueda), D7 (caché), D9 (consumo de ropa) y D10 (resiliencia)
 
 Viernes:
@@ -171,7 +172,7 @@ Viernes:
 - ¿Desde cuándo tiene que estar accesible la capacidad para el grupo de paneles solares: en la Entrega 2 o recién en la nube el 6/11?
 
 **A los grupos de la integración**
-- **Grupo de ropa:** pedir el link a su contrato. Sin él no se puede escribir el ADR D9.
+- **Grupo de ropa (FAV):** ✅ contrato recibido (v1.1.0). Falta pedirles la clave del grupo y el secreto de avisos, su URL desplegada cuando la tengan y el link a su repo, para registrar las dudas del contrato como issues.
 - **Grupo de paneles solares:** pasarles el OpenAPI v1 cuando esté en `main`.
 
 ## Queda para después del 23/10
