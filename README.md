@@ -49,6 +49,7 @@ Entrega 2 (23/10/2026). Lo que existe y lo que falta, sin mezclarlos:
 | `proveedores-service`: ranking de proveedores, PostgreSQL, tests unitarios y de integración | ✅ implementado |
 | Logs JSON correlacionados y traza distribuida (gateway → servicio → SQL) en Jaeger | ✅ implementado |
 | Contrato de la capacidad (OpenAPI v1) y documentación para el consumidor | ✅ implementado |
+| Test de carga de la capacidad con k6 y su análisis ([ADR-013](docs/adr/ADR-013-capacidad-y-costos.md)) | ✅ implementado |
 | `stock-service`, `import-service`, `catalog-service` | 📝 diseñado, sin código |
 | MongoDB, mensajería, búsqueda, caché | 📝 diseñado o por decidir, sin código |
 | Frontend web | 📝 pendiente |
@@ -57,6 +58,9 @@ Entrega 2 (23/10/2026). Lo que existe y lo que falta, sin mezclarlos:
 
 El detalle y las limitaciones conocidas están en
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#11-limitaciones-conocidas-y-deuda-técnica).
+
+**Bonus (consigna, sección 7):** el grupo **no toma ningún bonus**. Lo dejamos
+anunciado en la Entrega 2, que es cuando la consigna pide hacerlo.
 
 ## Cómo ejecutarlo
 
@@ -271,6 +275,10 @@ go test -tags=integration ./internal/adapters/postgres/ -v
 Si falla con un error del contenedor *reaper*, ver la explicación en
 [`services/proveedores-service/README.md`](services/proveedores-service/README.md#tests).
 
+**Test de carga** con k6 contra el sistema levantado (k6 corre en un contenedor, no
+hace falta instalarlo): cómo correrlo y resultados en
+[`tests/carga/README.md`](tests/carga/README.md).
+
 ## Problemas frecuentes
 
 | Síntoma | Causa y solución |
@@ -314,6 +322,8 @@ local. La URL pública se agregará acá y en
 | [`docs/contracts/README.md`](docs/contracts/README.md) | Contrato de la capacidad que publicamos, con ejemplos y errores. |
 | [`docs/contracts/openapi.yaml`](docs/contracts/openapi.yaml) | El mismo contrato en OpenAPI 3.0.3. |
 | [`docs/observabilidad/README.md`](docs/observabilidad/README.md) | Logs correlacionados y traza distribuida. |
+| [`tests/carga/README.md`](tests/carga/README.md) | Test de carga con k6: cómo correrlo y resultados. |
+| [`docs/DEMO-ENTREGA-2.md`](docs/DEMO-ENTREGA-2.md) | Guion de la demo y checklist de la Entrega 2. |
 | [`services/api-gateway/README.md`](services/api-gateway/README.md) | Configuración, balanceo y errores del gateway. |
 | [`services/proveedores-service/README.md`](services/proveedores-service/README.md) | Configuración, estructura y tests del servicio. |
 
