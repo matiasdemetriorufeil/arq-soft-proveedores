@@ -14,6 +14,8 @@ los que se decide si cada una está terminada. Cómo está construido se explica
 - **Estado `propuesto`**: es alcance diseñado, sin código todavía. Sus criterios
   son el compromiso a cumplir cuando se construya, no una descripción de lo que ya
   funciona.
+- **Estado `parcial`**: una parte está implementada y otra no; cada criterio dice
+  cuál.
 - Los identificadores (`HU-xx`, `RN-xx`) son estables: los tests y los ADR pueden
   referenciarlos.
 
@@ -36,7 +38,7 @@ estados.
 | **Consumidor externo** | El sistema del grupo de paneles solares | Saber a qué proveedor comprarle un producto y una cantidad. |
 | **Operador de compras** | Persona que usa la interfaz web (propuesto) | Importar listas de precios, comparar proveedores y controlar el stock. |
 | **Operador de la plataforma** | Quien mantiene el sistema | Entender qué pasó con una request y que el sistema siga respondiendo ante fallas. |
-| **Proveedor externo** | El grupo de catálogo de ropa (propuesto) | Que su catálogo entre como un proveedor más. |
+| **Proveedor externo** | FAV, el grupo de ropa (su catálogo ya se importa; los pedidos son propuestos) | Que su catálogo entre como un proveedor más. |
 
 ## 2. Reglas de negocio
 
@@ -71,14 +73,17 @@ estados.
 | **RN-15** | Una orden de reposición pasa por los estados `BORRADOR → SOLICITADA → CONFIRMADA`, en ese orden y sin saltear estados. Desde `SOLICITADA` también puede pasar a `VENCIDA` (el proveedor la dio de baja por falta de pago) o a `EN_REVISION` (el proveedor informa un estado que no conocemos), y desde `VENCIDA` a `EN_REVISION` (el pago llegó después del vencimiento). `EN_REVISION` se resuelve a mano ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)). |
 | **RN-16** | La orden de reposición se dirige al proveedor con **menor costo total** para la cantidad a reponer (RN-01 a RN-05). |
 
-### Importación y catálogo — propuesto
+### Importación y catálogo — parcial
 
-| ID | Regla |
-|---|---|
-| **RN-17** | Cada proveedor entrega su lista en su propio formato; el sistema la normaliza a una forma única antes de usarla. |
-| **RN-18** | Los códigos de producto de cada proveedor se mapean a un único producto del catálogo maestro. Un código sin mapear no entra al ranking. |
-| **RN-19** | Un cambio de precios o stock de un proveedor se refleja en la consulta de recomendados dentro de un retraso máximo definido (a fijar en D5/D6). |
-| **RN-20** | El catálogo de ropa (FAV) se trata como un proveedor más. Si su sistema no responde, el sistema sigue funcionando con sus últimas ofertas válidas, informa desde cuándo no se actualizan, y las deja de usar si tienen más de 24 horas ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)). |
+`import-service` ya importa y traduce el catálogo de FAV y publica los cambios;
+falta que `proveedores-service` consuma el evento para que lleguen al ranking.
+
+| ID | Regla | Estado |
+|---|---|---|
+| **RN-17** | Cada proveedor entrega su lista en su propio formato; el sistema la normaliza a una forma única antes de usarla. | implementado para FAV (`import-service/internal/dominio`) |
+| **RN-18** | Los códigos de producto de cada proveedor se traducen a un producto nuestro en el adaptador de ese proveedor (para FAV, `FAV-<varianteId>`). Una variante con datos que no sirven no entra y queda registrada. No hay catálogo maestro entre proveedores ([ADR-014](docs/adr/ADR-014-tres-servicios-sin-catalogo.md)). | implementado para FAV; cambio a validar por el grupo |
+| **RN-19** | Un cambio de precios o stock de un proveedor se refleja en la consulta de recomendados en **hasta 5 minutos** (la sincronización) **más menos de 5 s** (el evento), en condiciones normales ([ADR-005](docs/adr/ADR-005-comunicacion.md), [ADR-009](docs/adr/ADR-009-consumo-proveedor.md)). | parcial: falta el consumidor |
+| **RN-20** | El catálogo de ropa (FAV) se trata como un proveedor más. Si su sistema no responde, el sistema sigue funcionando con sus últimas ofertas válidas, informa desde cuándo no se actualizan, y las deja de usar si tienen más de 24 horas ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)). | parcial: `import-service` lo cumple y lo informa en `/estado`; falta que el ranking aplique el retiro |
 
 ## 3. Historias de usuario y criterios de aceptación
 
@@ -163,16 +168,19 @@ productos, 170 ofertas) y se comprobaron contra el cálculo de RN-01 a RN-05.
 - **CA-10.1** *Dado* un clon limpio del repositorio y un `.env` copiado de `.env.example`, *cuando* ejecuto `docker compose up -d --build`, *entonces* los cinco contenedores quedan en estado sano y la capacidad responde en `http://localhost:8080`.
 - **CA-10.2** *Dado* el repositorio, *entonces* no contiene claves ni contraseñas reales (solo los valores de desarrollo de `.env.example`).
 
-### Stock, reposición e importación (propuestas)
+### Stock, reposición e importación
 
-#### HU-11 — Importar la lista de precios de un proveedor · propuesto
-*Como operador de compras, quiero subir la lista de un proveedor en su propio formato, para que sus precios entren al comparador.*
+#### HU-11 — Importar la lista de precios de un proveedor · parcial
+*Como operador de compras, quiero que la lista de un proveedor entre al comparador en su propio formato, para comparar sus precios.* Para FAV la lista se baja sola cada 5 minutos de su API; no hay carga manual.
 
-- **CA-11.1** *Dado* una lista válida en el formato de un proveedor, *cuando* la importo, *entonces* sus ofertas aparecen en el ranking dentro del retraso máximo definido (RN-19).
-- **CA-11.2** *Dado* una lista con filas inválidas, *entonces* las válidas se importan y las inválidas quedan informadas, sin perder el resto.
-- **CA-11.3** *Dado* la misma lista importada dos veces, *entonces* no se duplican las ofertas.
+- **CA-11.1** *Dado* una lista válida en el formato de un proveedor, *cuando* se importa, *entonces* sus ofertas aparecen en el ranking dentro del retraso máximo definido (RN-19). *Parcial: se importa y se publica el evento; falta el consumidor.*
+- **CA-11.2** *Dado* una lista con filas inválidas, *entonces* las válidas se importan y las inválidas quedan informadas, sin perder el resto. *Implementado: las variantes descartadas quedan en la importación con su motivo.*
+- **CA-11.3** *Dado* la misma lista importada dos veces, *entonces* no se duplican las ofertas. *Implementado: la segunda importación no publica nada.*
 
-#### HU-12 — Unificar los códigos de los proveedores en un catálogo · propuesto
+#### HU-12 — Unificar los códigos de los proveedores en un catálogo · fuera de alcance ([ADR-014](docs/adr/ADR-014-tres-servicios-sin-catalogo.md), a validar)
+
+*Sin catálogo maestro, dos proveedores que venden lo mismo con códigos distintos no compiten en el mismo ranking. Se retoma si se suma un segundo proveedor externo con productos que coinciden.*
+
 *Como operador de compras, quiero que los códigos distintos de cada proveedor correspondan a un mismo producto, para compararlos entre sí.*
 
 - **CA-12.1** *Dado* dos proveedores que llaman distinto al mismo producto, *entonces* ambos aparecen en el mismo ranking.
@@ -191,12 +199,14 @@ productos, 170 ofertas) y se comprobaron contra el cálculo de RN-01 a RN-05.
 - **CA-14.2** *Dado* una orden abierta para ese producto, *entonces* no se genera otra.
 - **CA-14.3** *Dado* una orden, *entonces* solo puede pasar a `SOLICITADA` desde `BORRADOR`; a `CONFIRMADA` o `VENCIDA` desde `SOLICITADA`; y a `EN_REVISION` desde `SOLICITADA` o `VENCIDA` (RN-15).
 
-#### HU-15 — Comprar al catálogo de ropa como a un proveedor más · propuesto
+#### HU-15 — Comprar al catálogo de ropa como a un proveedor más · parcial
 *Como operador de compras, quiero que el catálogo del grupo de ropa participe del ranking y del stock, para comparar sus precios con los demás.*
 
 - **CA-15.1** *Dado* el catálogo de ropa disponible, *entonces* sus productos aparecen entre los candidatos del ranking y su compra impacta en el stock.
 - **CA-15.2** *Dado* que su sistema no responde, *entonces* el ranking sigue funcionando con sus últimas ofertas válidas, el usuario ve desde cuándo no se actualizan, y pasadas 24 horas quedan fuera del ranking (RN-20).
-- **CA-15.3** *Dado* un cambio incompatible en su contrato, *entonces* un test de contrato lo detecta.
+- **CA-15.3** *Dado* un cambio incompatible en su contrato, *entonces* un test de contrato lo detecta. *Implementado: `import-service/internal/fav/contrato_test.go`.*
+
+CA-15.1 depende del consumidor del evento (ranking) y de `stock-service` (compra). CA-15.2: `import-service` conserva las últimas ofertas, informa la antigüedad en `/estado` y publica su retiro a las 24 h; falta que el ranking lo aplique.
 
 #### HU-16 — Buscar productos y proveedores con filtros · propuesto
 *Como operador de compras, quiero buscar por texto y filtrar y ordenar los resultados, para encontrar rápido lo que necesito.*
@@ -220,11 +230,11 @@ criterios de aceptación del sistema completo.
 | **RNF-01** | **Entrada única:** todo el tráfico externo pasa por el gateway. | implementado |
 | **RNF-02** | **Un solo comando** levanta el sistema y no hay secretos en el repositorio. | implementado |
 | **RNF-03** | **Observabilidad básica:** logs JSON correlacionados con `request_id` y `trace_id`, y una traza distribuida del flujo principal. | implementado |
-| **RNF-04** | **Tests:** unitarios sobre las reglas de negocio e integración contra una base real. | implementado para `proveedores-service` |
+| **RNF-04** | **Tests:** unitarios sobre las reglas de negocio e integración contra una base real. | implementado para `proveedores-service`; en `import-service`, unitarios y de contrato en verde, integración con RabbitMQ corrida y con MongoDB escrita sin correr |
 | **RNF-05** | **Observabilidad completa:** métricas, tablero y alerta. | propuesto |
 | **RNF-06** | **Control de tráfico** en el gateway (límite de requests por consumidor). | propuesto |
-| **RNF-07** | **Test de carga** documentado, con capacidad y límite principal identificados. | propuesto |
-| **RNF-08** | **Resiliencia:** al menos un mecanismo de protección frente a la falla de una dependencia, demostrado con una caída provocada. | propuesto |
+| **RNF-07** | **Test de carga** documentado, con capacidad y límite principal identificados. | implementado ([ADR-013](docs/adr/ADR-013-capacidad-y-costos.md)) |
+| **RNF-08** | **Resiliencia:** al menos un mecanismo de protección frente a la falla de una dependencia, demostrado con una caída provocada. | parcial: circuit breaker hacia FAV y outbox implementados ([ADR-010](docs/adr/ADR-010-resiliencia.md)); falta la caída provocada y el `POSTMORTEM.md` |
 
 ## 5. Fuera de alcance (por ahora)
 
@@ -245,4 +255,6 @@ criterios de aceptación del sistema completo.
 | HU-08 | RN-12 | `services/api-gateway/internal/gateway/balanceador.go`, [ADR-012](docs/adr/ADR-012-balanceo-de-carga.md) |
 | HU-09 | RN-11, RN-12 | timeouts del gateway y del adaptador de PostgreSQL |
 | HU-10 | — | `docker-compose.yml`, `.env.example` |
-| HU-11 a HU-17 | RN-13 a RN-20 | sin código todavía; ver [ADR-001](docs/adr/ADR-001-limites-de-los-servicios.md) |
+| HU-11, HU-15 | RN-17 a RN-20 | `services/import-service` (parcial); evento en [`docs/contracts/eventos.md`](docs/contracts/eventos.md) |
+| HU-12 | RN-18 | fuera de alcance: [ADR-014](docs/adr/ADR-014-tres-servicios-sin-catalogo.md) |
+| HU-13, HU-14, HU-16, HU-17 | RN-13 a RN-16 | sin código todavía; ver [ADR-001](docs/adr/ADR-001-limites-de-los-servicios.md) |
