@@ -21,15 +21,20 @@ const TimeoutConfirmacion = 5 * time.Second
 // por evento_id).
 var ErrSinConfirmar = errors.New("el broker no confirmó el mensaje")
 
+// ErrSinRuta indica que el broker devolvió el mensaje porque ninguna cola está
+// enlazada a esa clave: no llegó a nadie, así que no cuenta como publicado.
+var ErrSinRuta = errors.New("el broker devolvió el mensaje: ninguna cola enlazada a esa clave")
+
 // Publicador publica sobres en ExchangeEventos con confirmaciones del broker
 // (publisher confirms). Si la conexión se cae, se reconecta en la próxima
 // publicación: no hay goroutines de fondo que administrar.
 type Publicador struct {
 	url string
 
-	mu   sync.Mutex
-	conn *amqp.Connection
-	ch   *amqp.Channel
+	mu        sync.Mutex
+	conn      *amqp.Connection
+	ch        *amqp.Channel
+	devueltos chan amqp.Return
 }
 
 // NuevoPublicador no se conecta todavía: la primera conexión la abre Publicar
@@ -70,6 +75,9 @@ func (p *Publicador) conectarLocked() error {
 		conn.Close()
 		return err
 	}
+	// Con mandatory, un mensaje sin cola vuelve por acá antes de su
+	// confirmación (así lo ordena el protocolo).
+	p.devueltos = ch.NotifyReturn(make(chan amqp.Return, 16))
 	p.conn, p.ch = conn, ch
 	return nil
 }
@@ -98,7 +106,7 @@ func (p *Publicador) Publicar(ctx context.Context, clave string, s Sobre) error 
 	ctx, cancel := context.WithTimeout(ctx, TimeoutConfirmacion)
 	defer cancel()
 	conf, err := p.ch.PublishWithDeferredConfirmWithContext(ctx, ExchangeEventos, clave,
-		true,  // mandatory: si no hay cola enlazada, el broker no lo descarta en silencio
+		true,  // mandatory: si no hay cola enlazada, el broker lo devuelve (ver abajo)
 		false, // immediate
 		amqp.Publishing{
 			ContentType:  "application/json",
@@ -120,7 +128,18 @@ func (p *Publicador) Publicar(ctx context.Context, clave string, s Sobre) error 
 	if !ok {
 		return fmt.Errorf("%w: nack de %s", ErrSinConfirmar, s.EventoID)
 	}
-	return nil
+	// El broker confirma también los mensajes que devolvió. La devolución
+	// llega antes que la confirmación, así que si está, ya está en el canal.
+	for {
+		select {
+		case r := <-p.devueltos:
+			if r.MessageId == s.EventoID {
+				return fmt.Errorf("%w %q (%s)", ErrSinRuta, clave, r.ReplyText)
+			}
+		default:
+			return nil
+		}
+	}
 }
 
 // Cerrar libera la conexión.
@@ -134,5 +153,5 @@ func (p *Publicador) cerrarLocked() {
 	if p.conn != nil {
 		p.conn.Close()
 	}
-	p.conn, p.ch = nil, nil
+	p.conn, p.ch, p.devueltos = nil, nil, nil
 }

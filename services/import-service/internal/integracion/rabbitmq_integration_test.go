@@ -8,6 +8,7 @@ package integracion
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -155,5 +156,20 @@ func TestSinBrokerPublicarDevuelveErrorYNoCuelga(t *testing.T) {
 	}
 	if time.Since(inicio) > 6*time.Second {
 		t.Errorf("tardó %v en fallar", time.Since(inicio))
+	}
+}
+
+func TestUnMensajeSinColaNoCuentaComoPublicado(t *testing.T) {
+	canal(t)
+	sobre, _ := mensajeria.NuevoSobre(context.Background(), "T", 1, time.Now(), map[string]int{})
+	p := mensajeria.NuevoPublicador(urlBroker)
+	defer p.Cerrar()
+	err := p.Publicar(context.Background(), "clave.sin.ninguna.cola", sobre)
+	if !errors.Is(err, mensajeria.ErrSinRuta) {
+		t.Fatalf("err = %v, quiero ErrSinRuta: el evento se perdería marcado como publicado", err)
+	}
+	// Después de una devolución el publicador sigue sirviendo.
+	if err := p.Publicar(context.Background(), mensajeria.ClaveListaPrecios, sobre); err != nil {
+		t.Fatalf("después de la devolución: %v", err)
 	}
 }
