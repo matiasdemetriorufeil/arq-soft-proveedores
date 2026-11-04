@@ -136,11 +136,12 @@ condiciones normales (ADR-005).
   MongoDB en el mismo documento que la importación (*outbox*: una escritura de un
   documento es atómica). Un ciclo cada 15 s publica lo pendiente.
 - **Publicación confirmada.** Un evento se marca como publicado solo cuando el
-  broker lo confirma (*publisher confirms*). Si la confirmación no llega, se
-  reintenta, y por eso el consumidor tiene que deduplicar.
+  broker lo confirma (*publisher confirms*) y no lo devolvió por falta de cola
+  (se publica con `mandatory`). Si la confirmación no llega, se reintenta, y por
+  eso el consumidor tiene que deduplicar.
 - **En orden.** Los pendientes se publican por `secuencia` ascendente y la
   publicación se detiene en el primero que falla.
 
 Esto está probado contra un RabbitMQ real en
 [`services/import-service/internal/integracion/`](../../services/import-service/internal/integracion/):
-confirmación, mensaje rechazado a la DLQ y DLQ tras el límite de entregas.
+confirmación, mensaje rechazado a la DLQ, DLQ tras el límite de entregas y mensaje sin cola que no cuenta como publicado.

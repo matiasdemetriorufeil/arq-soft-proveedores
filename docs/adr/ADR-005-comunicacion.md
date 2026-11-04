@@ -87,7 +87,7 @@ El webhook `pedido.actualizado` de FAV llega por HTTP a `stock-service`, directo
 
 - **Timeouts vigentes**, verificados en el código y el compose del 23/10: 3 s en el gateway y 2 s por consulta en el servicio.
 - **Comportamiento ante fallas y bajo carga** (réplica caída, base caída o pausada, errores por código bajo carga): ver [ADR-010](ADR-010-resiliencia.md) y [ADR-013](ADR-013-capacidad-y-costos.md).
-- **Publicación, contra RabbitMQ real** (03/11, tests de `services/import-service/internal/integracion/` corridos contra un RabbitMQ 3.12 local; el compose usa 4.1, con la misma semántica de colas quorum y `x-delivery-limit`): el broker confirma el mensaje y llega persistente con `message_id` = `evento_id`; un `nack` sin reencolar lo manda a la DLQ; después de **3** entregas reencoladas también; sin broker, publicar falla en menos de 6 s sin colgarse.
+- **Publicación, contra RabbitMQ real** (03/11, tests de `services/import-service/internal/integracion/` corridos contra un RabbitMQ 3.12 local; el compose usa 4.1, con la misma semántica de colas quorum y `x-delivery-limit`): el broker confirma el mensaje y llega persistente con `message_id` = `evento_id`; un `nack` sin reencolar lo manda a la DLQ; después de **3** entregas reencoladas también; un mensaje que el broker devuelve por no tener cola (`mandatory`) **no** se marca como publicado; sin broker, publicar falla en menos de 6 s sin colgarse.
 - **Outbox** (tests unitarios de `internal/sincronizacion`): con el broker caído, dos sincronizaciones dejan **2** eventos pendientes y, al volver, se publican los **2 en orden** de secuencia.
 - **Cuando exista el consumidor:** retraso entre `ocurrido_en` y el procesamiento (objetivo p95 < 5 s), mensajes en la DLQ y duplicados descartados.
 

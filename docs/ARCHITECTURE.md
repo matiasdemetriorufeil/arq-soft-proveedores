@@ -16,12 +16,14 @@ administra, cómo se comunican y cómo se despliegan.
 |---|---|
 | **Dominio** | Comparar proveedores por costo final (precio, descuento por volumen, flete y stock) y recomendar a quién comprar. |
 | **Capacidad que publicamos** | `GET /api/v1/proveedores/recomendados`, consumida por el grupo de paneles solares. Contrato en [`docs/contracts/`](contracts/README.md). |
-| **Capacidad que consumimos** | Catálogo de ropa de otro grupo, que entra como un proveedor más. *Propuesto: todavía no está integrado.* |
-| **Lenguaje** | Go, solo biblioteca estándar más pocas dependencias (`pgx`, OpenTelemetry). |
+| **Capacidad que consumimos** | Catálogo y pedidos de FAV (grupo de ropa), que entra como un proveedor más. *El catálogo ya se importa (contra un mock que cumple su contrato); los pedidos son propuestos.* |
+| **Lenguaje** | Go, solo biblioteca estándar más pocas dependencias (`pgx`, OpenTelemetry, el driver de MongoDB y el cliente de RabbitMQ). |
 | **Despliegue** | Docker Compose, un solo comando. Hoy corre solo en local. |
 
-Estado a la fecha de la Entrega 2 (23/10/2026): **un servicio de dominio**
-(`proveedores-service`, en dos réplicas), el `api-gateway`, PostgreSQL y Jaeger.
+Estado al 03/11/2026 (Entrega 3 en curso): **dos servicios de dominio**
+(`proveedores-service`, en dos réplicas, e `import-service`), el `api-gateway`,
+PostgreSQL, MongoDB, RabbitMQ y Jaeger. Redis y Meilisearch ya levantan pero
+todavía no se usan.
 
 ## 2. Contexto del sistema
 
@@ -31,16 +33,17 @@ Quién interactúa con el sistema desde afuera.
 flowchart LR
     paneles["<b>Grupo de paneles solares</b><br/>Sistema externo<br/>Consume la consulta de<br/>proveedores recomendados"]
     usuario["<b>Usuario</b><br/>Persona que compara proveedores<br/>y repone stock"]
-    ropa["<b>Grupo de catálogo de ropa</b><br/>Sistema externo<br/>Publica su catálogo<br/>con precios"]
+    ropa["<b>FAV (grupo de ropa)</b><br/>Sistema externo<br/>Publica su catálogo<br/>con precios y recibe pedidos"]
 
     sistema["<b>Comparador de proveedores</b><br/>Rankea ofertas por costo total,<br/>lleva el stock y genera<br/>órdenes de reposición"]
 
     paneles -- "GET /api/v1/proveedores/recomendados<br/>HTTPS/JSON + X-API-Key" --> sistema
     usuario -. "navegador (propuesto)" .-> sistema
-    sistema -. "consume su catálogo (propuesto)" .-> ropa
+    sistema -- "GET /v1/productos cada 5 min<br/>(contra el mock hasta tener su URL)" --> ropa
+    sistema -. "pedidos y webhook (propuesto)" .-> ropa
 
     classDef propuesto fill:#eeeeee,stroke:#999999,stroke-dasharray: 4 3,color:#555555
-    class usuario,ropa propuesto
+    class usuario propuesto
 ```
 
 - **Hacia adentro** solo entra tráfico por el `api-gateway`.
@@ -211,8 +214,10 @@ servicio servidor → `SELECT`) y se explica en
 ## 8. Despliegue
 
 Un único procedimiento: copiar `.env.example` a `.env` y correr
-`docker compose up -d --build`. Las migraciones y el seed los aplica el propio
-servicio al arrancar, así que Postgres no necesita scripts de inicio.
+`docker compose up -d --build`. Las migraciones y el seed los aplica cada
+servicio al arrancar. Postgres corre un solo script de inicio, al crear el
+volumen, que arma la base de `stock-service` con su propio usuario
+(`infra/postgres/init/`).
 
 | Contenedor | Imagen | Puerto al host | Salud |
 |---|---|---|---|
@@ -221,13 +226,23 @@ servicio al arrancar, así que Postgres no necesita scripts de inicio.
 | `proveedores-service-2` | la misma imagen | — | ídem |
 | `postgres` | `postgres:16-alpine` | — | `pg_isready` |
 | `jaeger` | `jaegertracing/all-in-one:1.76.0` | `16686` (`PUERTO_JAEGER`, solo la UI) | `wget` al puerto de administración |
+| `import-service` | construida del repo (distroless) | — | `/sonda` consulta `/readyz` (hace ping a MongoDB) |
+| `fav-mock` | la imagen de `import-service`, otro entrypoint | `8090` (`PUERTO_FAV_MOCK`, para simular fallas) | `/sonda` |
+| `rabbitmq` | `rabbitmq:4.1-management-alpine` | `15672` (`PUERTO_RABBITMQ_UI`, solo la UI) | `rabbitmq-diagnostics ping` |
+| `mongodb` | `mongo:8.0` | — | `mongosh` con `ping` |
+| `redis` | `redis:7.4-alpine`, sin persistencia | — | `redis-cli ping` |
+| `meilisearch` | `getmeili/meilisearch:v1.14` | — | `curl` a `/health` |
 
-- **Red:** una red interna (`interna`). Al host solo salen el gateway y la UI
-  de Jaeger; Postgres y las réplicas quedan inaccesibles desde afuera.
-- **Volumen:** `datos-postgres` conserva la base entre reinicios.
-- **Orden de arranque:** el gateway espera a que las dos réplicas estén sanas, y
-  las réplicas esperan a Postgres. Jaeger **no** es una dependencia: sin él, todo
-  responde igual.
+- **Red:** una red interna (`interna`). Al host salen el gateway (la única
+  entrada al sistema) y las consolas de operación: la UI de Jaeger, la de
+  RabbitMQ y el control del mock de FAV, que hace de sistema externo. Las bases,
+  el broker y los servicios quedan inaccesibles desde afuera.
+- **Volúmenes:** `datos-postgres`, `datos-mongodb`, `datos-rabbitmq` y
+  `datos-meilisearch`. Redis no tiene: es caché y se vuelve a llenar.
+- **Orden de arranque:** el gateway espera a que las dos réplicas estén sanas,
+  las réplicas esperan a Postgres e `import-service` espera a MongoDB. Jaeger,
+  RabbitMQ y FAV **no** son dependencias duras: sin ellos todo arranca y responde
+  (los eventos esperan en el outbox, siguen las últimas ofertas de FAV).
 - **Secretos:** ninguno en el repositorio. `.env` está en `.gitignore`; los
   valores de `.env.example` son solo para desarrollo local.
 - **Dos réplicas con nombre** y no `deploy.replicas`: el gateway necesita dos
@@ -237,7 +252,10 @@ servicio al arrancar, así que Postgres no necesita scripts de inicio.
 ## 9. Observabilidad
 
 Logs JSON (`log/slog`) correlacionados con `request_id` y `trace_id`, y trazas
-OpenTelemetry hasta la consulta a PostgreSQL. No hay métricas ni tablero todavía.
+OpenTelemetry hasta la consulta a PostgreSQL. `import-service` usa el mismo
+paquete: cada sincronización es un span con la llamada a FAV adentro, sus logs
+llevan `trace_id` y el evento sale con `traceparent` para que el consumidor
+continúe la traza. No hay métricas ni tablero todavía.
 Detalle y límites en [ADR-011](adr/ADR-011-observabilidad.md).
 
 ## 10. Decisiones arquitectónicas

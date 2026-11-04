@@ -83,7 +83,8 @@ Rama: `feat/import-service`. **Tu parte arranca primero y destraba a los demás:
 Primero (martes y miércoles a la mañana):
 - [x] `docker-compose.yml`: RabbitMQ, MongoDB, Redis y Meilisearch, con healthchecks, volúmenes y variables en `.env.example` (sin secretos)
 - [x] Una base de PostgreSQL por servicio (`proveedores` y `stock`) en el mismo contenedor, con usuarios distintos
-- [x] Formato del evento `ListaPreciosActualizada`: exchange, cola, cola de mensajes fallidos (DLQ), `evento_id` para idempotencia y JSON de ejemplo en `docs/contracts/eventos.md`. **Avisar en el grupo apenas esté en `main`.**
+- [x] Formato del evento `ListaPreciosActualizada`: exchange, cola, cola de mensajes fallidos (DLQ), `evento_id` para idempotencia y JSON de ejemplo en `docs/contracts/eventos.md`.
+- [ ] Avisar en el grupo cuando el PR #6 esté en `main` (lo necesitan los integrantes 2 y 3).
 
 Después:
 - [x] `import-service` en Go: adaptador `fav` (capa anticorrupción) que lee el catálogo cada 5 min, guarda la importación en MongoDB, compara con la anterior y publica solo los cambios
