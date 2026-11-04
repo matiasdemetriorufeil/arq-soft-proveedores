@@ -33,7 +33,7 @@ flowchart LR
 
 Si FAV no responde, se guarda el intento con su error y **sigue valiendo la
 última importación**. Después de **3** vueltas fallidas seguidas se abre el
-circuit breaker y no se llama a FAV durante 1 minuto. Si pasan **24 h** sin una
+circuit breaker y se saltean las **3** vueltas siguientes sin llamar a FAV; la cuarta hace una llamada de prueba. Si pasan **24 h** sin una
 sincronización buena, se publica un evento que retira todas las ofertas de FAV
 del ranking (`motivo: catalogo_vencido`), una sola vez.
 
@@ -124,6 +124,8 @@ go test -tags=integration ./internal/integracion/ -v         # RabbitMQ real (Do
   ```
 
 - **Cobertura** (03/11): `dominio`, `resiliencia` y `adapters/http` 100 %;
-  `fav` 86,7 %; `sincronizacion` 85,9 %.
-- **Integración:** los de RabbitMQ se corrieron contra un broker real y pasan; los
-  de MongoDB compilan pero todavía no se corrieron en una máquina con Docker.
+  `fav` 86,7 %; `sincronizacion` 86,2 %. `pkg/mensajeria` tiene 31,6 % en los
+  unitarios porque el publicador se prueba contra RabbitMQ real, en
+  `internal/integracion`.
+- **Integración:** los de RabbitMQ (5) se corrieron contra un broker real y pasan;
+  los de MongoDB compilan pero todavía no se corrieron en una máquina con Docker.

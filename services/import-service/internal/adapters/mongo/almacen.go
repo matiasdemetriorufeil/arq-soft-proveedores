@@ -184,11 +184,14 @@ func (a *Almacen) Guardar(ctx context.Context, imp sincronizacion.Importacion) e
 	return err
 }
 
-func (a *Almacen) una(ctx context.Context, filtro bson.D, orden bson.D) (sincronizacion.Importacion, bool, error) {
+// sinCrudo deja afuera la respuesta cruda de FAV, que ninguna lectura necesita.
+var sinCrudo = bson.D{{Key: "crudo", Value: 0}}
+
+func (a *Almacen) una(ctx context.Context, filtro, orden, proyeccion bson.D) (sincronizacion.Importacion, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, TimeoutOperacion)
 	defer cancel()
 	var d docImportacion
-	err := a.col.FindOne(ctx, filtro, options.FindOne().SetSort(orden)).Decode(&d)
+	err := a.col.FindOne(ctx, filtro, options.FindOne().SetSort(orden).SetProjection(proyeccion)).Decode(&d)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return sincronizacion.Importacion{}, false, nil
 	}
@@ -203,7 +206,8 @@ func (a *Almacen) una(ctx context.Context, filtro bson.D, orden bson.D) (sincron
 func (a *Almacen) UltimaVigente(ctx context.Context) (sincronizacion.Importacion, bool, error) {
 	return a.una(ctx,
 		bson.D{{Key: "proveedor", Value: a.proveedor}, {Key: "tiene_vigentes", Value: true}},
-		bson.D{{Key: "secuencia", Value: -1}})
+		bson.D{{Key: "secuencia", Value: -1}},
+		sinCrudo)
 }
 
 // UltimaSincronizacionOK devuelve cuándo terminó la última importación buena.
@@ -215,7 +219,9 @@ func (a *Almacen) UltimaSincronizacionOK(ctx context.Context) (time.Time, bool, 
 				sincronizacion.EstadoConCambios, sincronizacion.EstadoSinCambios,
 			}}}},
 		},
-		bson.D{{Key: "terminada_en", Value: -1}})
+		bson.D{{Key: "terminada_en", Value: -1}},
+		// Solo hace falta la fecha: sin el catálogo vigente ni la respuesta cruda.
+		bson.D{{Key: "crudo", Value: 0}, {Key: "vigentes", Value: 0}, {Key: "evento", Value: 0}})
 	return imp.TerminadaEn, ok, err
 }
 
@@ -227,7 +233,7 @@ func (a *Almacen) Pendientes(ctx context.Context, limite int) ([]sincronizacion.
 		bson.D{{Key: "proveedor", Value: a.proveedor}, {Key: "evento.publicado", Value: false}},
 		options.Find().SetSort(bson.D{{Key: "secuencia", Value: 1}}).SetLimit(int64(limite)).
 			// Los eventos pendientes no necesitan la respuesta cruda.
-			SetProjection(bson.D{{Key: "crudo", Value: 0}}))
+			SetProjection(sinCrudo))
 	if err != nil {
 		return nil, err
 	}

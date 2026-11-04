@@ -41,6 +41,10 @@ type Config struct {
 type Sincronizador struct {
 	cfg Config
 	mu  sync.Mutex
+	// pubMu serializa la publicación del outbox: la llaman la sincronización
+	// y el ciclo de 15 s, y si corrieran a la vez publicarían dos veces el
+	// mismo evento.
+	pubMu sync.Mutex
 }
 
 // Nuevo arma el sincronizador.
@@ -263,6 +267,8 @@ func (s *Sincronizador) guardarConEvento(ctx context.Context, imp *Importacion, 
 // secuencia. Se detiene en el primero que falla, para no publicar uno más
 // nuevo antes que uno viejo: lo que quedó se reintenta en la vuelta siguiente.
 func (s *Sincronizador) PublicarPendientes(ctx context.Context) int {
+	s.pubMu.Lock()
+	defer s.pubMu.Unlock()
 	pendientes, err := s.cfg.Almacen.Pendientes(ctx, 50)
 	if err != nil {
 		s.cfg.Logger.ErrorContext(ctx, "no se pudieron leer los eventos pendientes", "error", err.Error())
@@ -337,9 +343,14 @@ func resumenDe(imp Importacion) Resumen {
 	}
 }
 
+// ordenados devuelve los items por SKU. Nunca devuelve nil: una importación
+// con el catálogo vacío también es vigente (Vigentes != nil), si no la
+// siguiente vuelta compararía contra la anterior y repetiría las bajas.
 func ordenados(m map[string]dominio.Item) []dominio.Item {
-	vacio := map[string]dominio.Item{}
-	c := dominio.Comparar(vacio, m)
+	c := dominio.Comparar(map[string]dominio.Item{}, m)
+	if c.Altas == nil {
+		return []dominio.Item{}
+	}
 	return c.Altas
 }
 

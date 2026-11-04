@@ -35,10 +35,12 @@ const (
 	// este intervalo, sin esperar a la próxima sincronización: así el retraso
 	// de ADR-005 (menos de 5 s en condiciones normales) se recupera rápido.
 	intervaloOutbox = 15 * time.Second
-	// Breaker: tras 3 sincronizaciones fallidas seguidas, no se llama a FAV
-	// por 1 minuto (ADR-010).
-	fallasParaAbrir = 3
-	esperaBreaker   = time.Minute
+	// Breaker: tras 3 sincronizaciones fallidas seguidas, se saltean las 3
+	// siguientes sin llamar a FAV (ADR-010). La espera se mide en intervalos
+	// y no en un tiempo fijo: si fuera más corta que el intervalo, el breaker
+	// ya estaría semiabierto en la vuelta siguiente y nunca evitaría una llamada.
+	fallasParaAbrir   = 3
+	intervalosAbierto = 3
 )
 
 type config struct {
@@ -142,7 +144,7 @@ func run(log *slog.Logger) error {
 		// otelhttp agrega el traceparent a la llamada: la traza de la
 		// sincronización muestra cuánto tardó FAV.
 		Fuente:  fav.NuevoCliente(cfg.favURL, cfg.favClave, otelhttp.NewTransport(http.DefaultTransport)),
-		Breaker: resiliencia.NuevoBreaker(fallasParaAbrir, esperaBreaker, nil),
+		Breaker: resiliencia.NuevoBreaker(fallasParaAbrir, esperaBreaker(cfg.intervalo), nil),
 		Almacen: almacen,
 		Pub:     pub,
 		Logger:  log,
@@ -178,6 +180,14 @@ func run(log *slog.Logger) error {
 	c, cancel := context.WithTimeout(context.Background(), timeoutApagado)
 	defer cancel()
 	return srv.Shutdown(c)
+}
+
+// esperaBreaker es cuánto queda abierto el breaker para que se salteen
+// intervalosAbierto vueltas y la siguiente haga la llamada de prueba. El medio
+// intervalo de margen cubre lo que tarda una vuelta (los ticks no caen justo
+// cuando terminó la anterior). Con el intervalo de 5 min son 17 min 30 s.
+func esperaBreaker(intervalo time.Duration) time.Duration {
+	return time.Duration(intervalosAbierto)*intervalo + intervalo/2
 }
 
 // cicloSincronizacion sincroniza al arrancar y después cada intervalo.

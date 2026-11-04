@@ -375,3 +375,63 @@ func TestClaveInvalidaNoAbreElBreaker(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogoVacioDaDeBajaTodoUnaSolaVez(t *testing.T) {
+	e := nuevoEntorno()
+	e.sincronizar(t)
+	e.fte.cat = fav.Catalogo{Items: []fav.Producto{}}
+
+	r := e.sincronizar(t)
+	if r.Bajas != 2 || r.Publicados != 1 {
+		t.Fatalf("resumen = %+v", r)
+	}
+	r = e.sincronizar(t)
+	if r.Estado != EstadoSinCambios || len(e.pub.publicados) != 2 {
+		t.Errorf("resumen = %+v, publicados = %d: las bajas no se tienen que repetir", r, len(e.pub.publicados))
+	}
+	est, _ := e.s.Estado(context.Background())
+	if est.OfertasVigentes != 0 || est.SecuenciaVigente != 2 {
+		t.Errorf("estado = %+v", est)
+	}
+}
+
+// pubContador cuenta cuántas veces se publicó cada evento.
+type pubContador struct {
+	mu    sync.Mutex
+	veces map[string]int
+}
+
+func (p *pubContador) Publicar(_ context.Context, _ string, s mensajeria.Sobre) error {
+	time.Sleep(time.Millisecond) // agranda la ventana de la carrera
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.veces[s.EventoID]++
+	return nil
+}
+
+func (p *pubContador) Conectado() bool { return true }
+
+func TestPublicarPendientesEnParaleloNoDuplica(t *testing.T) {
+	e := nuevoEntorno()
+	e.pub.caido = true
+	e.sincronizar(t)
+	e.fte.cat = catalogo(map[string]float64{"v1": 1, "v2": 2})
+	e.sincronizar(t)
+
+	pc := &pubContador{veces: map[string]int{}}
+	e.s.cfg.Pub = pc
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() { defer wg.Done(); e.s.PublicarPendientes(context.Background()) }()
+	}
+	wg.Wait()
+	if len(pc.veces) != 2 {
+		t.Fatalf("se publicaron %d eventos distintos, quiero 2", len(pc.veces))
+	}
+	for id, n := range pc.veces {
+		if n != 1 {
+			t.Errorf("el evento %s se publicó %d veces", id, n)
+		}
+	}
+}
