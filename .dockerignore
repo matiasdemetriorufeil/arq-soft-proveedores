@@ -1,6 +1,7 @@
-# Contexto de build de las dos imágenes del repo —api-gateway y
-# proveedores-service—, que se construyen desde la raíz porque los dos módulos
-# dependen de pkg/observabilidad por ruta relativa. Lo único que tiene que entrar
+# Contexto de build de las imágenes del repo —api-gateway, proveedores-service
+# e import-service—, que se construyen desde la raíz porque los módulos
+# dependen de pkg/observabilidad (y import-service de pkg/mensajeria) por ruta
+# relativa. Lo único que tiene que entrar
 # es pkg/ y services/; todo lo demás se excluye para que el contexto sea chico y
 # para que no se filtre un .env en una imagen.
 #
