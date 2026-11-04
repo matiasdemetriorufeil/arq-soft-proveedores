@@ -1,0 +1,52 @@
+{
+  "items": [
+    {
+      "productoId": "prod-remera-basica",
+      "nombre": "Remera básica",
+      "categoria": "remeras",
+      "descripcion": "Remera de algodón, corte recto.",
+      "fotoUrl": "https://fav.example/fotos/remera-basica.jpg",
+      "variantes": [
+        { "varianteId": "var-remera-basica-blanca-m", "talle": "M", "color": "Blanco", "precio": 15000 },
+        { "varianteId": "var-remera-basica-negra-l", "talle": "L", "color": "Negro", "precio": 15000 },
+        { "varianteId": "var-remera-basica-negra-xl", "talle": "XL", "color": "Negro", "precio": 16500 }
+      ]
+    },
+    {
+      "productoId": "prod-jean-mom",
+      "nombre": "Jean mom",
+      "categoria": "jeans",
+      "variantes": [
+        { "varianteId": "var-jean-mom-celeste-38", "talle": "38", "color": "Celeste", "precio": 42000 },
+        { "varianteId": "var-jean-mom-negro-40", "talle": "40", "color": "Negro", "precio": 43500 }
+      ]
+    },
+    {
+      "productoId": "prod-buzo-canguro",
+      "nombre": "Buzo canguro",
+      "categoria": "buzos",
+      "descripcion": "Buzo de frisa con capucha.",
+      "variantes": [
+        { "varianteId": "var-buzo-canguro-gris-m", "talle": "M", "color": "Gris", "precio": 38000 },
+        { "varianteId": "var-buzo-canguro-azul-l", "talle": "L", "color": "Azul", "precio": 38000 }
+      ]
+    },
+    {
+      "productoId": "prod-camisa-oxford",
+      "nombre": "Camisa oxford",
+      "categoria": "camisas",
+      "variantes": [
+        { "varianteId": "var-camisa-oxford-celeste-m", "talle": "M", "color": "Celeste", "precio": 35500 }
+      ]
+    },
+    {
+      "productoId": "prod-campera-rompeviento",
+      "nombre": "Campera rompeviento",
+      "categoria": "camperas",
+      "variantes": [
+        { "varianteId": "var-campera-rompeviento-negra-l", "talle": "L", "color": "Negro", "precio": 68000 },
+        { "varianteId": "var-campera-rompeviento-verde-m", "talle": "M", "color": "Verde", "precio": 68000 }
+      ]
+    }
+  ]
+}

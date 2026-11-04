@@ -53,8 +53,9 @@ func TestMigrar_BaseVacia(t *testing.T) {
 	migrarCompartido(t)
 
 	c := contar(t, poolCompartido)
-	if c.proveedores != 10 {
-		t.Errorf("proveedores = %d, se esperaban 10", c.proveedores)
+	// Los 10 del seed más FAV (003_proveedor_fav.sql), que llega sin ofertas.
+	if c.proveedores != 11 {
+		t.Errorf("proveedores = %d, se esperaban 11", c.proveedores)
 	}
 	if c.productos != 30 {
 		t.Errorf("productos = %d, se esperaban 30", c.productos)
