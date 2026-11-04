@@ -1,8 +1,8 @@
 # ADR-001 — Límites de los servicios (D1)
 
-- **Estado:** aceptado para `api-gateway` y `proveedores-service` (implementados y verificados); **propuesto** para `stock-service`, `import-service` y `catalog-service` (todavía no existen en el código)
-- **Fecha:** 2026-10-23
-- **Entrega:** 1 (no se presentó en su fecha) y validación en la 2 (23/10)
+- **Estado:** aceptado para `api-gateway`, `proveedores-service` e `import-service` (implementados y verificados); **propuesto** para `stock-service`. La parte de `catalog-service` y de la tabla `productos` está **reemplazada por [ADR-014](ADR-014-tres-servicios-sin-catalogo.md)** (propuesto).
+- **Fecha:** 2026-10-23 · actualizado 2026-11-03
+- **Entrega:** 1 (no se presentó en su fecha), validación en la 2 (23/10) y actualización en la 3 (06/11)
 - **Decisión de la consigna:** D1. Criterios usados para separar responsabilidades, relaciones entre servicios y propiedad de los datos.
 
 ## Contexto
@@ -29,8 +29,8 @@ A la fecha de este ADR solo existen en el código el gateway y `proveedores-serv
 | `api-gateway` | implementado | Entrada única: API key, `X-Request-ID`, trazas y reparto entre réplicas. **Sin base de datos ni lógica de dominio.** | ninguno |
 | `proveedores-service` | implementado | Ranking de ofertas de proveedores por costo total. Publica la capacidad que consume el grupo de paneles solares. | `proveedores`, `productos`, `ofertas` (PostgreSQL) |
 | `stock-service` | propuesto | Stock propio, reserva sin sobreventa, punto de reorden y órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`, más `VENCIDA` y `EN_REVISION` según [ADR-009](ADR-009-consumo-proveedor.md)), incluidos los pedidos al grupo de ropa. | existencias y órdenes |
-| `import-service` | propuesto | Ingesta y normalización de las listas de precios de cada proveedor, incluido el catálogo de ropa que consumimos. | listas crudas y su normalización |
-| `catalog-service` | propuesto | Catálogo maestro: mapea los códigos de cada proveedor a un mismo producto. | catálogo unificado |
+| `import-service` | implementado (03/11) | Ingesta y normalización de las listas de precios de cada proveedor, incluido el catálogo de ropa que consumimos. Publica `ListaPreciosActualizada`. | importaciones, respuesta cruda y catálogo traducido vigente (MongoDB) |
+| ~~`catalog-service`~~ | reemplazado por [ADR-014](ADR-014-tres-servicios-sin-catalogo.md) | ~~Catálogo maestro: mapea los códigos de cada proveedor a un mismo producto.~~ El mapeo queda en la capa anticorrupción de `import-service`. | — |
 
 **Reglas de relación:**
 
@@ -39,7 +39,7 @@ A la fecha de este ADR solo existen en el código el gateway y `proveedores-serv
 - **Las llamadas a proveedores externos salen del servicio responsable**, no del gateway ni del frontend (consigna 4.1). Con el grupo de ropa (FAV) hablan dos: `import-service` consume su catálogo y `stock-service` le hace los pedidos de reposición y recibe su webhook, directo y no por el gateway ([ADR-009](ADR-009-consumo-proveedor.md)).
 - Interacciones previstas (a confirmar en D5): `stock-service` pregunta a `proveedores-service` a quién reponer (síncrona); `import-service` avisa a `proveedores-service` que hay precios nuevos (evento asíncrono).
 
-**Tensión que dejamos escrita:** hoy la tabla `productos` vive en `proveedores-service`, porque es el único servicio y necesita distinguir un SKU inexistente (`404`) de un producto sin ofertas (`200 []`). Cuando exista `catalog-service`, el dueño de `productos` pasa a ser él, y habrá que decidir si `proveedores-service` guarda una copia local actualizada por evento o lo consulta por API. Esa decisión va en un ADR nuevo que **reemplace esta parte**; no se resuelve ahora.
+**Tensión que dejamos escrita** *(resuelta en [ADR-014](ADR-014-tres-servicios-sin-catalogo.md): `productos` queda en `proveedores-service` y los de proveedores externos llegan por evento)*: hoy la tabla `productos` vive en `proveedores-service`, porque es el único servicio y necesita distinguir un SKU inexistente (`404`) de un producto sin ofertas (`200 []`). Cuando exista `catalog-service`, el dueño de `productos` pasa a ser él, y habrá que decidir si `proveedores-service` guarda una copia local actualizada por evento o lo consulta por API. Esa decisión va en un ADR nuevo que **reemplace esta parte**; no se resuelve ahora.
 
 ## Por qué
 
@@ -65,6 +65,12 @@ Mediciones del 23/10 sobre el código de `main`:
 - **Propiedad del almacenamiento:** el acceso a PostgreSQL está en **un solo paquete** (`internal/adapters/postgres`) de un solo servicio.
 - **Capacidad principal en un solo servicio:** una consulta del flujo principal genera **1** consulta SQL (traza de 4 spans: gateway → gateway cliente → servicio → `SELECT`; ver [ADR-011](ADR-011-observabilidad.md)). Si estuviera partida por entidad, serían tres llamadas.
 - **Latencia de la capacidad en el gateway** (medida por el integrante 2 el 22/10, n=23): mediana 1,99 ms, p95 4,92 ms.
+
+Mediciones del 03/11, con `import-service` en el código:
+
+- **`import-service` no importa ningún paquete de otro servicio:** solo `pkg/observabilidad` y `pkg/mensajeria`, compartidos.
+- **Habla con `proveedores-service` solo por evento:** **0** llamadas síncronas entre los dos; el formato está en [`docs/contracts/eventos.md`](../contracts/eventos.md).
+- **El acceso a MongoDB está en un solo paquete** (`internal/adapters/mongo`) de un solo servicio.
 
 La medición que falta —y que decide si hay que fundir servicios— es el costo de las llamadas entre servicios cuando existan (ver abajo).
 

@@ -42,7 +42,7 @@ consumidor ──► api-gateway ──► proveedores-service (2 réplicas) ─
 
 ## Estado del proyecto
 
-Entrega 2 (23/10/2026). Lo que existe y lo que falta, sin mezclarlos:
+Entrega 3 en curso (06/11/2026). Lo que existe y lo que falta, sin mezclarlos:
 
 | Componente | Estado |
 |---|---|
@@ -51,8 +51,11 @@ Entrega 2 (23/10/2026). Lo que existe y lo que falta, sin mezclarlos:
 | Logs JSON correlacionados y traza distribuida (gateway → servicio → SQL) en Jaeger | ✅ implementado |
 | Contrato de la capacidad (OpenAPI v1) y documentación para el consumidor | ✅ implementado |
 | Test de carga de la capacidad con k6 y su análisis ([ADR-013](docs/adr/ADR-013-capacidad-y-costos.md)) | ✅ implementado |
-| `stock-service`, `import-service`, `catalog-service` | 📝 diseñado, sin código |
-| MongoDB, mensajería, búsqueda, caché | 📝 diseñado o por decidir, sin código |
+| `import-service`: importa el catálogo de FAV, MongoDB, publica `ListaPreciosActualizada` en RabbitMQ, circuit breaker y test de contrato | ✅ implementado (contra el mock de FAV) |
+| RabbitMQ con cola de fallidos (DLQ), MongoDB, Redis y Meilisearch en el compose | ✅ levantan con `docker compose up` |
+| Consumo del evento en `proveedores-service`, caché y búsqueda | 📝 diseñado, sin código (Integrante 2) |
+| `stock-service` (reserva, reposición, pedidos a FAV) | 📝 diseñado, sin código (Integrante 3); su base ya existe |
+| `catalog-service` | ✖ fuera de alcance ([ADR-014](docs/adr/ADR-014-tres-servicios-sin-catalogo.md), a validar) |
 | Frontend web | 📝 pendiente |
 | Métricas, tablero y alertas | 📝 pendiente |
 | Despliegue en la nube (URL pública) | 📝 pendiente |
@@ -69,8 +72,9 @@ anunciado en la Entrega 2, que es cuando la consigna pide hacerlo.
 
 - **Docker** con Docker Compose, **corriendo** (en Windows, Docker Desktop abierto).
 - **Git**.
-- Puertos libres en tu máquina: `8080` (gateway) y `16686` (Jaeger). Postgres no
-  publica ningún puerto, así que no choca con uno que ya tengas.
+- Puertos libres en tu máquina: `8080` (gateway), `16686` (Jaeger), `15672` (UI de
+  RabbitMQ) y `8090` (control del mock de FAV). Las bases no publican ningún
+  puerto, así que no chocan con las que ya tengas.
 
 No hace falta tener Go instalado para levantar el sistema: se compila dentro de
 Docker.
@@ -93,10 +97,15 @@ termina:
 docker compose ps
 ```
 
-Tienen que aparecer **cinco contenedores** (`postgres`, `jaeger`,
-`proveedores-service-1`, `proveedores-service-2` y `api-gateway`) en estado
-`healthy`. Las migraciones y los datos de demostración los aplica el propio
+Tienen que aparecer **once contenedores** en estado `healthy`: `postgres`,
+`jaeger`, `rabbitmq`, `mongodb`, `redis`, `meilisearch`, `fav-mock`,
+`import-service`, `proveedores-service-1`, `proveedores-service-2` y
+`api-gateway`. Las migraciones y los datos de demostración los aplica cada
 servicio al arrancar: no hay que cargar nada a mano.
+
+**Si venías de la Entrega 2**, borrá una vez el volumen de Postgres para que se
+cree la base de `stock-service`: `docker compose down -v` y después
+`docker compose up -d --build`.
 
 ### Comprobar que funciona
 
@@ -129,6 +138,10 @@ Todo se configura con variables de entorno en el archivo `.env` (copia de
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Credenciales de la base (solo red interna) | valores de desarrollo |
 | `TIMEOUT_UPSTREAM` | Cuánto espera el gateway a una réplica antes de devolver 504 | `3s` |
 | `INTERVALO_SALUD` | Cada cuánto el gateway sondea a las réplicas | `5s` |
+| `FAV_URL`, `FAV_API_KEY` | URL y clave de FAV. Sin `FAV_URL`, `import-service` usa el mock local | mock local |
+| `INTERVALO_SINCRONIZACION` | Cada cuánto se baja el catálogo de FAV | `5m` |
+| `FAV_FLETE` | Flete fijo que se suma a cada oferta de FAV | `0` |
+| `RABBITMQ_*`, `MONGO_*`, `REDIS_PASSWORD`, `MEILI_MASTER_KEY`, `STOCK_DB*` | Credenciales de la infraestructura (solo red interna) | valores de desarrollo |
 
 Las claves y contraseñas de `.env.example` son solo para desarrollo local. **No se
 suben secretos reales al repositorio.**
@@ -170,7 +183,8 @@ error**. El producto no existe solo si recibís un `404`.
 
 ### 2. Productos disponibles (datos de demostración)
 
-El sistema trae 10 proveedores, 30 productos y 170 ofertas de ejemplo:
+El sistema trae 10 proveedores, 30 productos y 170 ofertas de ejemplo, más FAV
+(proveedor 11), cuyas ofertas llegan por la importación de su catálogo:
 
 | Categoría | SKU |
 |---|---|
@@ -248,7 +262,31 @@ docker compose start proveedores-service-1
 
 Con las dos detenidas, la capacidad responde `502 NO_DISPONIBLE`.
 
-### 6. Detener y reiniciar
+### 6. Ver la importación del catálogo de FAV
+
+`import-service` baja el catálogo al arrancar y cada 5 minutos. Lo que importó y
+el evento que publicó se ven en los logs y en la UI de RabbitMQ
+(<http://localhost:15672>, usuario y clave de `.env`), en la cola
+`proveedores-service.lista-precios`:
+
+```bash
+docker compose logs import-service | grep sincronización
+```
+
+Para simular que FAV se cae (Game Day), se cambia el modo del mock:
+
+```bash
+curl -X POST localhost:8090/_mock/modo -d '{"modo":"caido"}'    # 503 de FAV
+curl -X POST localhost:8090/_mock/modo -d '{"modo":"lento"}'    # tarda más que el timeout
+curl -X POST localhost:8090/_mock/modo -d '{"modo":"normal"}'   # vuelve
+curl -X POST localhost:8090/_mock/precio -d '{"varianteId":"var-jean-mom-celeste-38","precio":39900}'
+```
+
+Con FAV caído, `import-service` reintenta, abre el circuit breaker a las tres
+sincronizaciones fallidas y sigue con la última importación válida. Detalle en
+[`services/import-service/README.md`](services/import-service/README.md).
+
+### 7. Detener y reiniciar
 
 ```bash
 docker compose down        # detiene y borra los contenedores; conserva los datos
@@ -263,6 +301,8 @@ superior):
 ```bash
 cd services/proveedores-service && go vet ./... && go test ./... -cover
 cd ../api-gateway && go test ./... -cover
+cd ../import-service && go test ./... -cover   # incluye el test de contrato con FAV
+cd ../../pkg/mensajeria && go test ./... -cover
 ```
 
 **Tests de integración** contra un PostgreSQL real (levanta un contenedor propio;
@@ -271,6 +311,9 @@ cd ../api-gateway && go test ./... -cover
 ```bash
 cd services/proveedores-service
 go test -tags=integration ./internal/adapters/postgres/ -v
+
+cd ../import-service   # MongoDB y RabbitMQ reales
+go test -tags=integration ./internal/adapters/mongo/ ./internal/integracion/ -v
 ```
 
 Si falla con un error del contenedor *reaper*, ver la explicación en
@@ -284,7 +327,9 @@ hace falta instalarlo): cómo correrlo y resultados en
 
 | Síntoma | Causa y solución |
 |---|---|
-| `port is already allocated` al levantar | El `8080` o el `16686` está ocupado. Cambiá `PUERTO_GATEWAY` o `PUERTO_JAEGER` en `.env` y volvé a correr `docker compose up -d`. |
+| `port is already allocated` al levantar | El `8080`, `16686`, `15672` o `8090` está ocupado. Cambiá `PUERTO_GATEWAY`, `PUERTO_JAEGER`, `PUERTO_RABBITMQ_UI` o `PUERTO_FAV_MOCK` en `.env` y volvé a correr `docker compose up -d`. |
+| `falta STOCK_DB en .env` u otra variable nueva | Tu `.env` es de la Entrega 2: volvé a copiar `.env.example` a `.env`. |
+| `stock-service` no puede entrar a su base | El volumen de Postgres es anterior a la Entrega 3: `docker compose down -v` y volvé a levantar. |
 | `falta API_KEYS en .env` | No copiaste `.env.example` a `.env`. |
 | `Cannot connect to the Docker daemon` | Docker no está corriendo: abrí Docker Desktop. |
 | `docker compose ps` muestra un contenedor `starting` | Esperá: la base y las réplicas tardan hasta ~1 minuto en quedar sanas la primera vez. |
@@ -304,12 +349,15 @@ local. La URL pública se agregará acá y en
 ├── docker-compose.yml · .env.example
 ├── services/
 │   ├── api-gateway/          entrada única (Go)
-│   └── proveedores-service/  ranking de proveedores (Go, hexagonal, PostgreSQL)
+│   ├── proveedores-service/  ranking de proveedores (Go, hexagonal, PostgreSQL)
+│   └── import-service/       importa el catálogo de FAV (Go, MongoDB, RabbitMQ) y su mock
 ├── pkg/observabilidad/       logger JSON con trace_id y trazas OpenTelemetry
+├── pkg/mensajeria/           sobre de eventos, topología de RabbitMQ y publicador
+├── infra/postgres/init/      una base por servicio en el mismo Postgres
 └── docs/
     ├── ARCHITECTURE.md
     ├── adr/                  decisiones arquitectónicas
-    ├── contracts/            contrato de la capacidad (OpenAPI + README)
+    ├── contracts/            contrato de la capacidad, eventos internos y contratos que consumimos
     └── observabilidad/       cómo reproducir la traza
 ```
 
@@ -322,6 +370,9 @@ local. La URL pública se agregará acá y en
 | [`docs/adr/`](docs/adr/) | Una decisión arquitectónica por archivo, con opciones, razones, consecuencias y medición. |
 | [`docs/contracts/README.md`](docs/contracts/README.md) | Contrato de la capacidad que publicamos, con ejemplos y errores. |
 | [`docs/contracts/openapi.yaml`](docs/contracts/openapi.yaml) | El mismo contrato en OpenAPI 3.0.3. |
+| [`docs/contracts/eventos.md`](docs/contracts/eventos.md) | Eventos internos por RabbitMQ: formato, colas, DLQ y qué hace el consumidor. |
+| [`docs/PLAN-ENTREGA-3.md`](docs/PLAN-ENTREGA-3.md) | Reparto del trabajo para la Entrega 3 y la presentación. |
+| [`services/import-service/README.md`](services/import-service/README.md) | Configuración, estados, mock de FAV y tests de `import-service`. |
 | [`docs/observabilidad/README.md`](docs/observabilidad/README.md) | Logs correlacionados y traza distribuida. |
 | [`tests/carga/README.md`](tests/carga/README.md) | Test de carga con k6: cómo correrlo y resultados. |
 | [`docs/DEMO-ENTREGA-2.md`](docs/DEMO-ENTREGA-2.md) | Guion de la demo y checklist de la Entrega 2. |

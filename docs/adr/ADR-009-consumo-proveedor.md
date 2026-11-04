@@ -1,8 +1,8 @@
 # ADR-009 — Consumo del proveedor: catálogo y pedidos de FAV (D9)
 
-- **Estado:** **propuesto**. El diseño está hecho sobre el contrato publicado por FAV, pero todavía no hay código que lo consuma: los servicios responsables (`import-service` y `stock-service`) no existen. El consumo real corresponde a la Entrega 3 (6/11). Falta que FAV defina su URL desplegada y cómo entrega la clave y el secreto de avisos (marcados **[?]** en su contrato).
-- **Fecha:** 2026-10-23
-- **Entrega:** 2 (23/10)
+- **Estado:** **aceptado e implementado para el catálogo** (`import-service`, 03/11), probado contra el contrato v1.1.0 y contra un mock que lo cumple; **propuesto** para los pedidos y el webhook (`stock-service`, Integrante 3). Falta que FAV defina su URL desplegada y cómo entrega la clave y el secreto de avisos (marcados **[?]** en su contrato): con `FAV_URL` en `.env`, `import-service` deja el mock y apunta al real sin cambiar código.
+- **Fecha:** 2026-10-23 · actualizado 2026-11-03
+- **Entrega:** 2 (23/10) y 3 (06/11)
 - **Decisión de la consigna:** D9. Incorporación de la capacidad externa, adaptación al contrato y comportamiento ante errores, cambios o indisponibilidad.
 
 ## Contexto
@@ -49,8 +49,11 @@ Para comprar:
   | `flete` | **[propuesta]** valor fijo configurable, hasta acordarlo con FAV | el contrato no lo informa; la entrega se coordina por contacto |
   | `stock_disponible` | **10** (el máximo por variante de un pedido) | el contrato no informa stock: la oferta vale hasta lo que se puede pedir de una vez, y el stock real lo confirma el pedido |
 
-- **Frecuencia:** cada **5 minutos** y al arrancar. Se compara con la última versión guardada y solo se publican los cambios.
-- **Si FAV no responde:** se conserva la **última importación válida**. Si la última sincronización exitosa tiene **más de 24 horas**, sus ofertas se excluyen del ranking para no recomendar precios viejos.
+- **Frecuencia:** cada **5 minutos** (`INTERVALO_SINCRONIZACION`) y al arrancar. Se compara con lo último que se avisó y solo se publican los cambios: altas, modificaciones y bajas, con una `secuencia` que crece ([`eventos.md`](../contracts/eventos.md)).
+- **Si FAV no responde:** se conserva la **última importación válida**. Si la última sincronización exitosa tiene **más de 24 horas**, `import-service` publica un evento con todas sus ofertas como bajas (`motivo: catalogo_vencido`), **una sola vez**; cuando FAV vuelve, se reenvía el catálogo completo.
+- **Llamada a FAV** (`internal/fav`): timeout de **3 s** por intento y hasta **3 reintentos** solo ante timeout, error de red, `429`, `500` o `503`, con espera de 0,5, 1 y 2 s o la que pida `Retry-After` (con tope de 30 s). Un `401` no se reintenta. Un catálogo que no cumple el contrato (faltan campos obligatorios) se rechaza entero y sigue valiendo el anterior; una variante con datos que no sirven (precio negativo, id repetido) se descarta sola y queda registrada.
+- **Circuit breaker:** después de **3** sincronizaciones fallidas seguidas, no se llama a FAV durante **1 minuto**; después pasa una sola llamada de prueba. Un `401` no cuenta como falla: es un problema de configuración, no una caída ([ADR-010](ADR-010-resiliencia.md)).
+- **Mock local:** mientras FAV no publique su URL, el compose levanta `fav-mock`, que cumple su contrato y permite simular fallas (`caido`, `lento`, `limite`, `error`, `invalido`) para el Game Day.
 
 ### Reposición → pedidos (`stock-service`)
 
@@ -101,7 +104,8 @@ Cuando el stock propio de una prenda de FAV cae bajo el punto de reorden, `stock
 
 ## Consecuencias aceptadas
 
-- **Hoy no hay código de integración.** Hasta que existan `import-service` y `stock-service`, el consumo no cuenta para la consigna.
+- **El catálogo ya se importa, pero todavía no llega al ranking**: falta el consumidor del evento en `proveedores-service` (Integrante 2). Los pedidos dependen de `stock-service` (Integrante 3).
+- **Hoy se prueba contra nuestro mock**, no contra FAV: el mock cumple su contrato (lo verifica el test de contrato), pero no reemplaza probar contra su despliegue.
 - **Tomamos 10 unidades como stock de FAV**, que no es su stock real: una recomendación de FAV puede terminar en un `409 STOCK_INSUFICIENTE` al pedir, y para más de 10 unidades por variante FAV no aparece en el ranking.
 - **El flete de FAV es un valor nuestro, no de ellos**, hasta acordarlo: el costo total de sus ofertas puede no ser el real.
 - **Sus precios pueden estar hasta 5 minutos desactualizados** en condiciones normales, y hasta 24 horas si FAV se cae.
@@ -112,7 +116,13 @@ Cuando el stock propio de una prenda de FAV cae bajo el punto de reorden, `stock
 
 ## Con qué lo medimos
 
-Todavía no hay mediciones. Cuando esté implementado:
+Mediciones del 03/11 sobre `import-service` (tests de `go test ./...`):
+
+- **Test de contrato en verde** contra la copia del OpenAPI v1.1.0 (`internal/fav/contrato_test.go`): nuestro cliente entiende el ejemplo del propio contrato (3 de 3 variantes traducidas, 0 descartes), nuestra request cumple el contrato (ruta, método, `X-API-Key`, `X-Correlation-Id`) y las respuestas del mock validan contra el esquema en `200`, `401`, `429`, `500` y `503`. El validador detecta una respuesta fuera de contrato. Con `FAV_URL_CONTRATO` y `FAV_API_KEY`, el mismo test corre contra el FAV desplegado.
+- **Reintentos:** ante `429`, `500` o `503` transitorios, el catálogo llega al tercer intento con esperas crecientes; con FAV caído se rinde a los **4** intentos; un `401` se intenta **1** vez; un intento colgado se corta a los 3 s.
+- **Caída de FAV** (tests de `internal/sincronizacion`): tres sincronizaciones fallidas no publican nada y abren el breaker; la cuarta no llama a FAV. A las 23 h 59 min sin sincronizar no se retira nada; pasadas las 24 h se publica **un** evento con las 2 bajas y no se repite.
+
+Cuando esté integrado de punta a punta:
 
 - **Antigüedad de la última sincronización exitosa** del catálogo (objetivo < 10 min) y tasa de éxito de las sincronizaciones.
 - **Latencia p95** de las llamadas a FAV, medida desde nuestro lado.

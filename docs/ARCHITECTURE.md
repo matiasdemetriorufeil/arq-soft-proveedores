@@ -60,7 +60,7 @@ Qué se despliega y cómo se conecta.
 flowchart TB
     paneles(["Grupo de paneles solares"])
     usuario(["Usuario (navegador)"])
-    ropa(["Grupo de catálogo de ropa"])
+    ropa(["FAV (grupo de ropa)<br/>o fav-mock en local"])
 
     subgraph sistema["Comparador de proveedores — red interna de Docker"]
         direction TB
@@ -72,14 +72,16 @@ flowchart TB
             p2["<b>proveedores-service-2</b><br/>(Go, hexagonal)"]
         end
 
-        pg[("<b>PostgreSQL 16</b><br/>proveedores · productos · ofertas<br/><i>implementado</i>")]
+        pg[("<b>PostgreSQL 16</b><br/>base proveedores<br/>base stock (vacía)<br/><i>implementado</i>")]
         jaeger["<b>Jaeger</b><br/>colector y visor de trazas<br/><i>implementado</i>"]
 
+        imp["<b>import-service</b> (Go)<br/>importa el catálogo de FAV<br/>capa anticorrupción<br/><i>implementado</i>"]
+        mongo[("<b>MongoDB 8</b><br/>importaciones + outbox<br/><i>implementado</i>")]
+        rabbit[["<b>RabbitMQ 4.1</b><br/>proveedores.eventos + DLQ<br/><i>implementado</i>"]]
+
         stock["<b>stock-service</b><br/>reservas y reposición<br/><i>propuesto</i>"]
-        imp["<b>import-service</b><br/>ingesta de listas de precios<br/><i>propuesto</i>"]
-        cat["<b>catalog-service</b><br/>catálogo maestro<br/><i>propuesto</i>"]
-        mongo[("<b>MongoDB</b><br/>listas importadas<br/><i>propuesto</i>")]
-        pgstock[("<b>PostgreSQL</b><br/>stock y órdenes<br/><i>propuesto</i>")]
+        redis[("<b>Redis</b><br/>caché de ofertas<br/><i>en el compose, sin uso</i>")]
+        meili[("<b>Meilisearch</b><br/>índice de productos<br/><i>en el compose, sin uso</i>")]
     end
 
     paneles -- "HTTPS + X-API-Key" --> gw
@@ -90,24 +92,33 @@ flowchart TB
     p1 -- "SQL (pgx)" --> pg
     p2 -- "SQL (pgx)" --> pg
 
+    imp -- "GET /v1/productos cada 5 min<br/>timeout 3 s · circuit breaker" --> ropa
+    imp -- "importaciones y outbox" --> mongo
+    imp -- "ListaPreciosActualizada<br/>publisher confirms" --> rabbit
+    rabbit -. "consumo (propuesto)" .-> p1
+
     gw -. "OTLP/HTTP" .-> jaeger
     p1 -. "OTLP/HTTP" .-> jaeger
     p2 -. "OTLP/HTTP" .-> jaeger
+    imp -. "OTLP/HTTP" .-> jaeger
 
     gw -. "propuesto" .-> stock
-    stock -. "recomendación de proveedor<br/>(a definir en D5)" .-> p1
-    imp -. "aviso de precios nuevos<br/>(a definir en D5)" .-> p1
-    imp --> mongo
-    imp -. "consume su catálogo" .-> ropa
-    stock --> pgstock
+    stock -. "recomendación de proveedor" .-> p1
+    stock -. "pedidos y webhook" .-> ropa
+    stock -.-> pg
+    p1 -.-> redis
+    p1 -.-> meili
 
     classDef propuesto fill:#eeeeee,stroke:#999999,stroke-dasharray: 4 3,color:#555555
-    class stock,imp,cat,mongo,pgstock,usuario,ropa propuesto
+    class stock,redis,meili,usuario propuesto
 ```
 
-La línea punteada entre servicios de dominio indica una interacción **propuesta**:
-su forma exacta (síncrona o por evento, timeouts, reintentos, idempotencia) la
-fija la decisión D5 y todavía no está implementada.
+La línea punteada indica una interacción **propuesta**. La forma de cada una
+(síncrona o por evento, timeouts, reintentos, idempotencia) está en
+[ADR-005](adr/ADR-005-comunicacion.md); el evento entre `import-service` y
+`proveedores-service`, en [`contracts/eventos.md`](contracts/eventos.md).
+`catalog-service` ya no está: su trabajo lo hace la capa anticorrupción de
+`import-service` ([ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md)).
 
 ## 4. Servicios y responsabilidades
 
@@ -117,13 +128,15 @@ Los criterios de corte están en [ADR-001](adr/ADR-001-limites-de-los-servicios.
 |---|---|---|---|---|
 | `api-gateway` | implementado | Entrada única: valida `X-API-Key`, genera o respeta `X-Request-ID`, abre el span padre de la traza, reparte la capacidad entre réplicas y las saca del reparto si caen. **Sin datos ni lógica de dominio.** | — | Proxy inverso con balanceador propio |
 | `proveedores-service` | implementado | Calcula el costo total de cada oferta, descarta las que no tienen stock suficiente y devuelve las más baratas. Publica la capacidad compartida. | PostgreSQL | Hexagonal ([ADR-002](adr/ADR-002-arquitectura-interna.md)) |
-| `stock-service` | propuesto | Stock propio, reserva sin sobreventa, punto de reorden y órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`). | PostgreSQL | En capas (propuesto en ADR-002) |
-| `import-service` | propuesto | Ingesta y normalización de listas de precios, incluido el catálogo de ropa. | MongoDB | a definir |
-| `catalog-service` | propuesto | Catálogo maestro: mapeo de códigos de cada proveedor a un mismo producto. | a definir | a definir |
+| `stock-service` | propuesto | Stock propio, reserva sin sobreventa, punto de reorden y órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`). | PostgreSQL (base `stock`, ya creada) | En capas (propuesto en ADR-002) |
+| `import-service` | implementado | Baja el catálogo de FAV cada 5 min, lo traduce a ofertas (capa anticorrupción), lo compara con lo último avisado y publica `ListaPreciosActualizada`. Sin tráfico de afuera: solo `/healthz`, `/readyz`, `/estado` y `POST /sincronizar` en la red interna. | MongoDB | Puertos y adaptadores livianos: `dominio` y `sincronizacion` no conocen MongoDB, RabbitMQ ni HTTP |
+| `fav-mock` | implementado (solo local) | Hace de FAV mientras no tengamos su URL: cumple su contrato v1.1.0 y simula fallas para el Game Day. No es parte del sistema. | — | — |
 
-El código de cada servicio está en `services/<nombre>/`. El paquete compartido
-`pkg/observabilidad` (logger JSON con `trace_id` e inicialización de
-OpenTelemetry) lo usan el gateway y `proveedores-service`.
+El código de cada servicio está en `services/<nombre>/`. Hay dos paquetes
+compartidos: `pkg/observabilidad` (logger JSON con `trace_id` e inicialización
+de OpenTelemetry), que usan todos los servicios, y `pkg/mensajeria` (sobre de los
+eventos, topología de RabbitMQ y publicador), que usan quien publica y quien
+consume.
 
 ## 5. Propiedad de los datos
 
@@ -132,10 +145,10 @@ Cada dato tiene **un único dueño**. Ningún servicio lee la base de otro.
 | Dato | Dueño | Dónde vive | Quién más lo ve |
 |---|---|---|---|
 | Proveedores (`proveedores`) | `proveedores-service` | PostgreSQL | Nadie directamente; se exponen por la API |
-| Productos (`productos`) | `proveedores-service` (**provisorio**) | PostgreSQL | Ver la tensión en [ADR-001](adr/ADR-001-limites-de-los-servicios.md): pasa a `catalog-service` cuando exista |
+| Productos (`productos`) | `proveedores-service` | PostgreSQL | Los de proveedores externos llegan por el evento `ListaPreciosActualizada` ([ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md)) |
 | Ofertas (`ofertas`: precio, descuento, flete, stock del proveedor) | `proveedores-service` | PostgreSQL | Nadie directamente |
 | Existencias propias y órdenes de reposición | `stock-service` (propuesto) | PostgreSQL | — |
-| Listas de precios importadas | `import-service` (propuesto) | MongoDB | — |
+| Importaciones: respuesta cruda del proveedor, catálogo traducido vigente y eventos a publicar | `import-service` | MongoDB | Nadie directamente; los cambios salen por el evento |
 
 Esquema implementado y motivos de la elección en
 [ADR-003](adr/ADR-003-persistencia.md). **Distinción importante:** `stock_disponible`
@@ -151,8 +164,9 @@ puede comprarle; no es el stock propio, que será de `stock-service`.
 | `proveedores-service` → PostgreSQL | síncrona | SQL (pgx) | implementado | Timeout de 2 s por consulta |
 | Servicios → Jaeger | asíncrona (telemetría) | OTLP/HTTP | implementado | Si Jaeger no está, el sistema responde igual |
 | `stock-service` → `proveedores-service` | síncrona | HTTP | propuesto | Se define en D5 |
-| `import-service` → `proveedores-service` | asíncrona (evento) | mensajería | propuesto | Se define en D5 |
-| `import-service` → FAV (grupo de ropa), catálogo | síncrona | HTTP, cada 5 min | propuesto | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, última importación válida si falla |
+| `import-service` → RabbitMQ → `proveedores-service` | asíncrona (evento `ListaPreciosActualizada`) | AMQP 0-9-1 | publicación implementada; consumo propuesto | Outbox en MongoDB, *publisher confirms*, DLQ tras 3 entregas ([`eventos.md`](contracts/eventos.md)) |
+| `import-service` → MongoDB | síncrona | MongoDB wire | implementado | Timeout de 3 s por operación |
+| `import-service` → FAV (grupo de ropa), catálogo | síncrona | HTTP, cada 5 min | implementado (contra `fav-mock`) | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, 3 reintentos, circuit breaker, última importación válida hasta 24 h |
 | `stock-service` → FAV, pedidos | síncrona | HTTP con `Idempotency-Key` | propuesto | [ADR-009](adr/ADR-009-consumo-proveedor.md) |
 | FAV → `stock-service` (directo, sin gateway) | asíncrona (webhook) | HTTP firmado con HMAC | propuesto | Aviso de cambio de estado del pedido ([ADR-009](adr/ADR-009-consumo-proveedor.md)) |
 
@@ -230,15 +244,15 @@ Detalle y límites en [ADR-011](adr/ADR-011-observabilidad.md).
 
 | # | Decisión | Documento | Estado |
 |---|---|---|---|
-| D1 | Límites de los servicios | [ADR-001](adr/ADR-001-limites-de-los-servicios.md) | aceptado (2 servicios); 3 propuestos |
+| D1 | Límites de los servicios | [ADR-001](adr/ADR-001-limites-de-los-servicios.md) y [ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md) | aceptado (gateway, proveedores e import); stock propuesto; sin `catalog-service` (ADR-014, propuesto) |
 | D2 | Arquitectura interna | [ADR-002](adr/ADR-002-arquitectura-interna.md) | aceptado |
-| D3 | Persistencia | [ADR-003](adr/ADR-003-persistencia.md) | aceptado (PostgreSQL); resto propuesto |
-| D5 | Comunicación entre servicios | [ADR-005](adr/ADR-005-comunicacion.md) | aceptado (síncrono); mensajería propuesta |
+| D3 | Persistencia | [ADR-003](adr/ADR-003-persistencia.md) | aceptado (PostgreSQL y MongoDB); stock propuesto |
+| D5 | Comunicación entre servicios | [ADR-005](adr/ADR-005-comunicacion.md) | aceptado (síncrono y publicación del evento); consumo propuesto |
 | D6 | Búsqueda | [ADR-006](adr/ADR-006-busqueda.md) | propuesto |
 | D7 | Caché | [ADR-007](adr/ADR-007-cache.md) | propuesto |
 | D8 | Contrato propio | [ADR-008](adr/ADR-008-contrato-propio.md) | aceptado |
-| D9 | Consumo del proveedor | [ADR-009](adr/ADR-009-consumo-proveedor.md) | propuesto (diseñado sobre el contrato v1.1.0 de FAV) |
-| D10 | Resiliencia | [ADR-010](adr/ADR-010-resiliencia.md) | aceptado (gateway y servicio); resto propuesto |
+| D9 | Consumo del proveedor | [ADR-009](adr/ADR-009-consumo-proveedor.md) | aceptado (catálogo, con test de contrato); pedidos propuestos |
+| D10 | Resiliencia | [ADR-010](adr/ADR-010-resiliencia.md) | aceptado (gateway, proveedores e import, con circuit breaker hacia FAV); resto propuesto |
 | D11 | Observabilidad | [ADR-011](adr/ADR-011-observabilidad.md) | aceptado para logs y trazas; resto propuesto |
 | D12 | Balanceo de carga | [ADR-012](adr/ADR-012-balanceo-de-carga.md) | aceptado |
 | D13 | Capacidad y costos | [ADR-013](adr/ADR-013-capacidad-y-costos.md) | aceptado (test de carga del 23/10: 1 200 req/s sostenidas) |
@@ -255,19 +269,22 @@ grupal pide actualizar.
 
 **Alcance que falta (consigna)**
 
-- **Un solo servicio de dominio.** La consigna pide al menos tres más el gateway
-  para la presentación. `stock-service`, `import-service` y `catalog-service` son
-  solo diseño.
-- **Un solo tipo de almacenamiento.** Falta el no relacional (MongoDB) para cumplir
-  con los dos tipos.
+- **Dos servicios de dominio de tres.** `proveedores-service` e `import-service`
+  están implementados; `stock-service` es solo diseño. `catalog-service` sale del
+  alcance ([ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md), a validar).
 - **Sin frontend.** No hay interfaz web.
-- **Sin comunicación asíncrona.** No hay mensajería, evento de dominio ni
-  consumidor idempotente.
-- **Sin motor de búsqueda ni caché.** Hoy cada consulta va a PostgreSQL.
-- **Sin integración real con el grupo de ropa.** El consumo del contrato de FAV
-  (catálogo y pedidos) está diseñado en [ADR-009](adr/ADR-009-consumo-proveedor.md)
-  pero no implementado, así que hoy no cuenta como integración con consecuencias
-  sobre el negocio (consigna 4.1).
+- **El evento se publica pero nadie lo consume.** `import-service` publica
+  `ListaPreciosActualizada` con outbox y confirmaciones, y la DLQ está armada;
+  falta el consumidor idempotente en `proveedores-service`, así que las ofertas de
+  FAV todavía no llegan al ranking.
+- **Redis y Meilisearch están en el compose pero sin uso.** Hoy cada consulta va a
+  PostgreSQL.
+- **La integración con FAV es contra nuestro mock.** El catálogo se consume con
+  test de contrato contra su OpenAPI v1.1.0, pero FAV todavía no publicó su URL;
+  los pedidos y el webhook ([ADR-009](adr/ADR-009-consumo-proveedor.md)) dependen
+  de `stock-service`.
+- **Los tests de integración de MongoDB no se corrieron todavía.** Están escritos
+  y compilan; los de RabbitMQ sí se corrieron contra un broker real.
 - **Sin despliegue en la nube.** La capacidad corre solo en local; falta la URL
   pública que pide la presentación.
 

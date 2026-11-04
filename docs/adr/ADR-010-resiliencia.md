@@ -1,6 +1,6 @@
 # ADR-010 — Resiliencia (D10)
 
-- **Estado:** aceptado e implementado para `api-gateway` y `proveedores-service` (timeouts, salida del reparto por salud, reintento acotado, error inmediato ante la base caída, telemetría opcional); **propuesto** para el proveedor externo (circuit breaker), la caché como respaldo y el límite de tráfico en el gateway
+- **Estado:** aceptado e implementado para `api-gateway`, `proveedores-service` (timeouts, salida del reparto por salud, reintento acotado, error inmediato ante la base caída, telemetría opcional) e `import-service` (circuit breaker, reintentos y última importación válida frente a FAV; outbox frente a RabbitMQ); **propuesto** para los pedidos a FAV, la caché como respaldo y el límite de tráfico en el gateway
 - **Fecha:** 2026-10-23
 - **Entrega:** 2 (23/10)
 - **Decisión de la consigna:** D10. Comportamiento ante fallas y mecanismos seleccionados para limitar su propagación o degradar el sistema de manera controlada.
@@ -32,7 +32,9 @@ El riesgo particular de nuestro sistema es que la capacidad la consume **otro gr
 | `proveedores-service` | PostgreSQL al arrancar | reintenta las migraciones **15 veces cada 2 s** antes de rendirse | timeout de 10 s por intento | implementado |
 | todos | Jaeger | **ningún efecto**: el exportador falla en segundo plano y las requests siguen; Jaeger no es dependencia en el compose | ningún efecto | implementado |
 | `proveedores-service` | Redis (caché) | se saltea la caché y se lee de PostgreSQL | timeout corto (50 ms) y la misma salida | propuesto ([ADR-007](ADR-007-cache.md)) |
-| `import-service` | catálogo de FAV (tienda de ropa) | circuit breaker; el ranking sigue con la última importación válida, hasta 24 h | timeout de 3 s y hasta 3 reintentos | propuesto ([ADR-009](ADR-009-consumo-proveedor.md)) |
+| `import-service` | catálogo de FAV (tienda de ropa) | hasta 3 reintentos y, tras 3 sincronizaciones fallidas, **circuit breaker** abierto 1 min; el ranking sigue con la última importación válida, hasta 24 h, y después se retiran sus ofertas | timeout de 3 s por intento; cuenta como falla | implementado ([ADR-009](ADR-009-consumo-proveedor.md)) |
+| `import-service` | RabbitMQ | los eventos esperan en el **outbox** (MongoDB) y se publican en orden cada 15 s cuando vuelve; `/readyz` sigue en 200 | confirmación con timeout de 5 s; si no llega, el evento queda pendiente | implementado ([ADR-005](ADR-005-comunicacion.md)) |
+| `import-service` | MongoDB | `/readyz` en 503 y la sincronización no avanza (no tiene dónde guardar); la capacidad publicada no se entera | timeout de 3 s por operación | implementado |
 | `stock-service` | pedidos de FAV | la orden de reposición queda en `BORRADOR`; los reintentos técnicos repiten su `Idempotency-Key` | timeout de 3 s; un aviso perdido lo recupera la consulta cada 15 min | propuesto ([ADR-009](ADR-009-consumo-proveedor.md)) |
 
 Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.md), y la salida del reparto por salud, en [ADR-012](ADR-012-balanceo-de-carga.md).
@@ -75,6 +77,13 @@ Mediciones del 22/10 ([ADR-012](ADR-012-balanceo-de-carga.md), [ADR-002](ADR-002
 - **Las dos réplicas detenidas:** `502 NO_DISPONIBLE` y `/readyz` del gateway en 503.
 - **Base detenida:** `503` en **2 ms**; base pausada: `503` en **2,0 s**.
 - **Bajo sobrecarga:** códigos de respuesta y latencias máximas por tasa en [ADR-013](ADR-013-capacidad-y-costos.md).
+
+Mediciones del 03/11 sobre `import-service` (tests unitarios y de integración, sin el compose completo):
+
+- **Circuit breaker:** abre a las **3** fallas seguidas y no llama a FAV mientras está abierto; pasado 1 min deja **una** llamada de prueba y vuelve a cerrar si sale bien o a abrir si falla. Un `401` no lo abre (`internal/resiliencia`, 100 % de cobertura).
+- **FAV caído:** el ranking conserva las 2 ofertas vigentes de la prueba y `/estado` informa el breaker abierto (`internal/sincronizacion`).
+- **RabbitMQ caído:** los eventos quedan en el outbox y salen en orden al volver; publicar sin broker falla en menos de 6 s, sin colgar la sincronización.
+- **Falta medirlo con el sistema levantado** (Game Day): cortar el mock de FAV con `POST /_mock/modo {"modo":"caido"}` y detener RabbitMQ con `docker compose stop rabbitmq`.
 
 ## Qué nos haría cambiar de idea
 
