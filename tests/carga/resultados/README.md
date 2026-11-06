@@ -11,4 +11,12 @@ contenedor, CPU, memoria). Las tablas se arman con
 |---|---|
 | [`2026-10-23/`](2026-10-23/) | **Serie de referencia** con el código de `main`: rampa por defecto más una corrida aislada por tasa (200 a 2 000 req/s), generada con `medir.sh`. Incluye la primera rampa del día (`k6-rampa-primera.json`, `stats-rampa-primera.csv`), que colapsó en el escalón de 1 600 req/s; esa corrida usó la versión anterior del script, sin contadores por código ni registro del contenedor de k6. |
 | [`2026-10-23-experimento-pool/`](2026-10-23-experimento-pool/) | La misma serie (rampa, 1 000, 1 600 y 2 000 req/s) con el gateway modificado **solo para el experimento**: `MaxIdleConnsPerHost = 256` en el transporte hacia las réplicas. El cambio no está commiteado. |
+| [`2026-11-06-a-base/`](2026-11-06-a-base/) | **Serie A:** código base `68a3670`, antes de tocar el servicio. Rampa más 200, 1 000 y 1 600 req/s. Desde acá, cada carpeta suma `contadores-<corrida>.csv` (PostgreSQL y Redis antes y después) y `meta.txt`. |
+| [`2026-11-06-b-pool/`](2026-11-06-b-pool/) | **Serie B:** pool del gateway arreglado y `CACHE_HABILITADA=false`. Mismas tasas. |
+| [`2026-11-06-b-pool-repeticion/`](2026-11-06-b-pool-repeticion/) | Rampa y 1 600 req/s de B otra vez, porque la primera rampa dio un p95 de 534 ms. Dio 7,8 ms: es ruido de la rampa. |
+| [`2026-11-06-c-pool-cache/`](2026-11-06-c-pool-cache/) | **Serie C:** pool y caché. Mismas tasas. |
+| [`2026-11-06-aciertos/`](2026-11-06-aciertos/) | Tasa de aciertos a 5 req/s durante 5 min con SKU sesgados. |
+| [`2026-11-06-retraso-indice/`](2026-11-06-retraso-indice/) | Retraso del índice con 25 eventos reales. |
+| [`2026-11-06-busqueda/`](2026-11-06-busqueda/) | Latencia de búsqueda y tiempos de reconstrucción. |
+| [`2026-11-06-fallas/`](2026-11-06-fallas/) | Salida del simulacro de fallas. |
 | [`2026-10-23-exploratorio/`](2026-10-23-exploratorio/) | Primeras corridas aisladas de la mañana, hechas a mano con la versión anterior del script y sin `docker stats` guardado: `k6-base-*` con el código de `main` y `k6-pool-*` con el mismo cambio del experimento. Sirven para ver cuánto varía el resultado entre corridas en sobrecarga. |

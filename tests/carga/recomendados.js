@@ -30,6 +30,16 @@ const SKUS = [
   'FUS-DC-15A', 'SECC-DC-32A', 'TAB-STRING-2E', 'MED-BIDIR', 'MON-WIFI',
 ];
 
+// SKU_SESGADOS=1 reparte la carga como la demanda esperada de ADR-007: pocos
+// productos muy pedidos y muchos poco pedidos. Elevar al cubo concentra el valor
+// cerca de 0: los 5 primeros SKU reciben más de la mitad de las requests. Por
+// defecto, reparto uniforme.
+const SKU_SESGADOS = __ENV.SKU_SESGADOS === '1';
+function elegirSKU() {
+  const r = Math.random();
+  return SKUS[Math.floor((SKU_SESGADOS ? r * r * r : r) * SKUS.length)];
+}
+
 // Un contador por resultado, para que el resumen diga qué error fue y no solo
 // cuántos: status 0 es un error del lado de k6 (conexión o timeout propio).
 const respuestas = {
@@ -72,7 +82,7 @@ export const options = {
 };
 
 export default function () {
-  const sku = SKUS[Math.floor(Math.random() * SKUS.length)];
+  const sku = elegirSKU();
   const cantidad = 1 + Math.floor(Math.random() * 50);
   const res = http.get(
     `${BASE_URL}/api/v1/proveedores/recomendados?producto=${sku}&cantidad=${cantidad}&limite=5`,

@@ -1,0 +1,3 @@
+{"time":"2026-11-06T18:33:55.319210828Z","level":"INFO","msg":"índice reconstruido","service":"reindexar","documentos":10000}
+{"time":"2026-11-06T18:33:55.323171346Z","level":"INFO","msg":"reconstrucción terminada","service":"reindexar","duracion_ms":2303}
+{"numberOfDocuments":10000,"rawDocumentDbSize":3887104,"avgDocumentSize":380,"isIndexing":false,"numberOfEmbeddings":0,"
