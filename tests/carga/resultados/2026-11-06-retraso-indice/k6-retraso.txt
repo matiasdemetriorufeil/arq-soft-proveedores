@@ -1,0 +1,813 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+     execution: local
+        script: /scripts/retraso-indice.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 1 max VUs, 40m30s max duration (incl. graceful stop):
+              * eventos: 25 iterations for each of 1 VUs (maxDuration: 40m0s, gracefulStop: 30s)
+
+
+running (00m01.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+eventos   [   0% ] 1 VUs  00m01.0s/40m0s  00/25 iters, 25 per VU
+
+running (00m02.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+eventos   [   0% ] 1 VUs  00m02.0s/40m0s  00/25 iters, 25 per VU
+
+running (00m03.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+eventos   [   0% ] 1 VUs  00m03.0s/40m0s  00/25 iters, 25 per VU
+time="2026-11-06T18:15:47Z" level=info msg="evento 1: 271 ms" source=console
+
+running (00m04.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+eventos   [   4% ] 1 VUs  00m04.0s/40m0s  01/25 iters, 25 per VU
+
+running (00m05.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+eventos   [   4% ] 1 VUs  00m05.0s/40m0s  01/25 iters, 25 per VU
+
+running (00m06.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+eventos   [   4% ] 1 VUs  00m06.0s/40m0s  01/25 iters, 25 per VU
+
+running (00m07.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+eventos   [   4% ] 1 VUs  00m07.0s/40m0s  01/25 iters, 25 per VU
+
+running (00m08.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+eventos   [   4% ] 1 VUs  00m08.0s/40m0s  01/25 iters, 25 per VU
+
+running (00m09.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+eventos   [   4% ] 1 VUs  00m09.0s/40m0s  01/25 iters, 25 per VU
+
+running (00m10.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+eventos   [   4% ] 1 VUs  00m10.0s/40m0s  01/25 iters, 25 per VU
+
+running (00m11.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+eventos   [   4% ] 1 VUs  00m11.0s/40m0s  01/25 iters, 25 per VU
+
+running (00m12.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+eventos   [   4% ] 1 VUs  00m12.0s/40m0s  01/25 iters, 25 per VU
+
+running (00m13.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+eventos   [   4% ] 1 VUs  00m13.0s/40m0s  01/25 iters, 25 per VU
+time="2026-11-06T18:15:57Z" level=info msg="evento 2: 177 ms" source=console
+
+running (00m14.0s), 1/1 VUs, 2 complete and 0 interrupted iterations
+eventos   [   8% ] 1 VUs  00m14.0s/40m0s  02/25 iters, 25 per VU
+
+running (00m15.0s), 1/1 VUs, 2 complete and 0 interrupted iterations
+eventos   [   8% ] 1 VUs  00m15.0s/40m0s  02/25 iters, 25 per VU
+
+running (00m16.0s), 1/1 VUs, 2 complete and 0 interrupted iterations
+eventos   [   8% ] 1 VUs  00m16.0s/40m0s  02/25 iters, 25 per VU
+
+running (00m17.0s), 1/1 VUs, 2 complete and 0 interrupted iterations
+eventos   [   8% ] 1 VUs  00m17.0s/40m0s  02/25 iters, 25 per VU
+
+running (00m18.0s), 1/1 VUs, 2 complete and 0 interrupted iterations
+eventos   [   8% ] 1 VUs  00m18.0s/40m0s  02/25 iters, 25 per VU
+
+running (00m19.0s), 1/1 VUs, 2 complete and 0 interrupted iterations
+eventos   [   8% ] 1 VUs  00m19.0s/40m0s  02/25 iters, 25 per VU
+
+running (00m20.0s), 1/1 VUs, 2 complete and 0 interrupted iterations
+eventos   [   8% ] 1 VUs  00m20.0s/40m0s  02/25 iters, 25 per VU
+
+running (00m21.0s), 1/1 VUs, 2 complete and 0 interrupted iterations
+eventos   [   8% ] 1 VUs  00m21.0s/40m0s  02/25 iters, 25 per VU
+
+running (00m22.0s), 1/1 VUs, 2 complete and 0 interrupted iterations
+eventos   [   8% ] 1 VUs  00m22.0s/40m0s  02/25 iters, 25 per VU
+
+running (00m23.0s), 1/1 VUs, 2 complete and 0 interrupted iterations
+eventos   [   8% ] 1 VUs  00m23.0s/40m0s  02/25 iters, 25 per VU
+time="2026-11-06T18:16:06Z" level=info msg="evento 3: 87 ms" source=console
+
+running (00m24.0s), 1/1 VUs, 3 complete and 0 interrupted iterations
+eventos   [  12% ] 1 VUs  00m24.0s/40m0s  03/25 iters, 25 per VU
+
+running (00m25.0s), 1/1 VUs, 3 complete and 0 interrupted iterations
+eventos   [  12% ] 1 VUs  00m25.0s/40m0s  03/25 iters, 25 per VU
+
+running (00m26.0s), 1/1 VUs, 3 complete and 0 interrupted iterations
+eventos   [  12% ] 1 VUs  00m26.0s/40m0s  03/25 iters, 25 per VU
+
+running (00m27.0s), 1/1 VUs, 3 complete and 0 interrupted iterations
+eventos   [  12% ] 1 VUs  00m27.0s/40m0s  03/25 iters, 25 per VU
+
+running (00m28.0s), 1/1 VUs, 3 complete and 0 interrupted iterations
+eventos   [  12% ] 1 VUs  00m28.0s/40m0s  03/25 iters, 25 per VU
+
+running (00m29.0s), 1/1 VUs, 3 complete and 0 interrupted iterations
+eventos   [  12% ] 1 VUs  00m29.0s/40m0s  03/25 iters, 25 per VU
+
+running (00m30.0s), 1/1 VUs, 3 complete and 0 interrupted iterations
+eventos   [  12% ] 1 VUs  00m30.0s/40m0s  03/25 iters, 25 per VU
+
+running (00m31.0s), 1/1 VUs, 3 complete and 0 interrupted iterations
+eventos   [  12% ] 1 VUs  00m31.0s/40m0s  03/25 iters, 25 per VU
+
+running (00m32.0s), 1/1 VUs, 3 complete and 0 interrupted iterations
+eventos   [  12% ] 1 VUs  00m32.0s/40m0s  03/25 iters, 25 per VU
+
+running (00m33.0s), 1/1 VUs, 3 complete and 0 interrupted iterations
+eventos   [  12% ] 1 VUs  00m33.0s/40m0s  03/25 iters, 25 per VU
+time="2026-11-06T18:16:17Z" level=info msg="evento 4: 141 ms" source=console
+
+running (00m34.0s), 1/1 VUs, 4 complete and 0 interrupted iterations
+eventos   [  16% ] 1 VUs  00m34.0s/40m0s  04/25 iters, 25 per VU
+
+running (00m35.0s), 1/1 VUs, 4 complete and 0 interrupted iterations
+eventos   [  16% ] 1 VUs  00m35.0s/40m0s  04/25 iters, 25 per VU
+
+running (00m36.0s), 1/1 VUs, 4 complete and 0 interrupted iterations
+eventos   [  16% ] 1 VUs  00m36.0s/40m0s  04/25 iters, 25 per VU
+
+running (00m37.0s), 1/1 VUs, 4 complete and 0 interrupted iterations
+eventos   [  16% ] 1 VUs  00m37.0s/40m0s  04/25 iters, 25 per VU
+
+running (00m38.0s), 1/1 VUs, 4 complete and 0 interrupted iterations
+eventos   [  16% ] 1 VUs  00m38.0s/40m0s  04/25 iters, 25 per VU
+
+running (00m39.0s), 1/1 VUs, 4 complete and 0 interrupted iterations
+eventos   [  16% ] 1 VUs  00m39.0s/40m0s  04/25 iters, 25 per VU
+
+running (00m40.0s), 1/1 VUs, 4 complete and 0 interrupted iterations
+eventos   [  16% ] 1 VUs  00m40.0s/40m0s  04/25 iters, 25 per VU
+
+running (00m41.0s), 1/1 VUs, 4 complete and 0 interrupted iterations
+eventos   [  16% ] 1 VUs  00m41.0s/40m0s  04/25 iters, 25 per VU
+
+running (00m42.0s), 1/1 VUs, 4 complete and 0 interrupted iterations
+eventos   [  16% ] 1 VUs  00m42.0s/40m0s  04/25 iters, 25 per VU
+
+running (00m43.0s), 1/1 VUs, 4 complete and 0 interrupted iterations
+eventos   [  16% ] 1 VUs  00m43.0s/40m0s  04/25 iters, 25 per VU
+time="2026-11-06T18:16:26Z" level=info msg="evento 5: 93 ms" source=console
+
+running (00m44.0s), 1/1 VUs, 5 complete and 0 interrupted iterations
+eventos   [  20% ] 1 VUs  00m44.0s/40m0s  05/25 iters, 25 per VU
+
+running (00m45.0s), 1/1 VUs, 5 complete and 0 interrupted iterations
+eventos   [  20% ] 1 VUs  00m45.0s/40m0s  05/25 iters, 25 per VU
+
+running (00m46.0s), 1/1 VUs, 5 complete and 0 interrupted iterations
+eventos   [  20% ] 1 VUs  00m46.0s/40m0s  05/25 iters, 25 per VU
+
+running (00m47.0s), 1/1 VUs, 5 complete and 0 interrupted iterations
+eventos   [  20% ] 1 VUs  00m47.0s/40m0s  05/25 iters, 25 per VU
+
+running (00m48.0s), 1/1 VUs, 5 complete and 0 interrupted iterations
+eventos   [  20% ] 1 VUs  00m48.0s/40m0s  05/25 iters, 25 per VU
+
+running (00m49.0s), 1/1 VUs, 5 complete and 0 interrupted iterations
+eventos   [  20% ] 1 VUs  00m49.0s/40m0s  05/25 iters, 25 per VU
+
+running (00m50.0s), 1/1 VUs, 5 complete and 0 interrupted iterations
+eventos   [  20% ] 1 VUs  00m50.0s/40m0s  05/25 iters, 25 per VU
+
+running (00m51.0s), 1/1 VUs, 5 complete and 0 interrupted iterations
+eventos   [  20% ] 1 VUs  00m51.0s/40m0s  05/25 iters, 25 per VU
+
+running (00m52.0s), 1/1 VUs, 5 complete and 0 interrupted iterations
+eventos   [  20% ] 1 VUs  00m52.0s/40m0s  05/25 iters, 25 per VU
+
+running (00m53.0s), 1/1 VUs, 5 complete and 0 interrupted iterations
+eventos   [  20% ] 1 VUs  00m53.0s/40m0s  05/25 iters, 25 per VU
+time="2026-11-06T18:16:36Z" level=info msg="evento 6: 98 ms" source=console
+
+running (00m54.0s), 1/1 VUs, 6 complete and 0 interrupted iterations
+eventos   [  24% ] 1 VUs  00m54.0s/40m0s  06/25 iters, 25 per VU
+
+running (00m55.0s), 1/1 VUs, 6 complete and 0 interrupted iterations
+eventos   [  24% ] 1 VUs  00m55.0s/40m0s  06/25 iters, 25 per VU
+
+running (00m56.0s), 1/1 VUs, 6 complete and 0 interrupted iterations
+eventos   [  24% ] 1 VUs  00m56.0s/40m0s  06/25 iters, 25 per VU
+
+running (00m57.0s), 1/1 VUs, 6 complete and 0 interrupted iterations
+eventos   [  24% ] 1 VUs  00m57.0s/40m0s  06/25 iters, 25 per VU
+
+running (00m58.0s), 1/1 VUs, 6 complete and 0 interrupted iterations
+eventos   [  24% ] 1 VUs  00m58.0s/40m0s  06/25 iters, 25 per VU
+
+running (00m59.0s), 1/1 VUs, 6 complete and 0 interrupted iterations
+eventos   [  24% ] 1 VUs  00m59.0s/40m0s  06/25 iters, 25 per VU
+
+running (01m00.0s), 1/1 VUs, 6 complete and 0 interrupted iterations
+eventos   [  24% ] 1 VUs  01m00.0s/40m0s  06/25 iters, 25 per VU
+
+running (01m01.0s), 1/1 VUs, 6 complete and 0 interrupted iterations
+eventos   [  24% ] 1 VUs  01m01.0s/40m0s  06/25 iters, 25 per VU
+
+running (01m02.0s), 1/1 VUs, 6 complete and 0 interrupted iterations
+eventos   [  24% ] 1 VUs  01m02.0s/40m0s  06/25 iters, 25 per VU
+
+running (01m03.0s), 1/1 VUs, 6 complete and 0 interrupted iterations
+eventos   [  24% ] 1 VUs  01m03.0s/40m0s  06/25 iters, 25 per VU
+time="2026-11-06T18:16:47Z" level=info msg="evento 7: 167 ms" source=console
+
+running (01m04.0s), 1/1 VUs, 7 complete and 0 interrupted iterations
+eventos   [  28% ] 1 VUs  01m04.0s/40m0s  07/25 iters, 25 per VU
+
+running (01m05.0s), 1/1 VUs, 7 complete and 0 interrupted iterations
+eventos   [  28% ] 1 VUs  01m05.0s/40m0s  07/25 iters, 25 per VU
+
+running (01m06.0s), 1/1 VUs, 7 complete and 0 interrupted iterations
+eventos   [  28% ] 1 VUs  01m06.0s/40m0s  07/25 iters, 25 per VU
+
+running (01m07.0s), 1/1 VUs, 7 complete and 0 interrupted iterations
+eventos   [  28% ] 1 VUs  01m07.0s/40m0s  07/25 iters, 25 per VU
+
+running (01m08.0s), 1/1 VUs, 7 complete and 0 interrupted iterations
+eventos   [  28% ] 1 VUs  01m08.0s/40m0s  07/25 iters, 25 per VU
+
+running (01m09.0s), 1/1 VUs, 7 complete and 0 interrupted iterations
+eventos   [  28% ] 1 VUs  01m09.0s/40m0s  07/25 iters, 25 per VU
+
+running (01m10.0s), 1/1 VUs, 7 complete and 0 interrupted iterations
+eventos   [  28% ] 1 VUs  01m10.0s/40m0s  07/25 iters, 25 per VU
+
+running (01m11.0s), 1/1 VUs, 7 complete and 0 interrupted iterations
+eventos   [  28% ] 1 VUs  01m11.0s/40m0s  07/25 iters, 25 per VU
+
+running (01m12.0s), 1/1 VUs, 7 complete and 0 interrupted iterations
+eventos   [  28% ] 1 VUs  01m12.0s/40m0s  07/25 iters, 25 per VU
+
+running (01m13.0s), 1/1 VUs, 7 complete and 0 interrupted iterations
+eventos   [  28% ] 1 VUs  01m13.0s/40m0s  07/25 iters, 25 per VU
+time="2026-11-06T18:16:57Z" level=info msg="evento 8: 164 ms" source=console
+
+running (01m14.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m14.0s/40m0s  08/25 iters, 25 per VU
+
+running (01m15.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m15.0s/40m0s  08/25 iters, 25 per VU
+
+running (01m16.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m16.0s/40m0s  08/25 iters, 25 per VU
+
+running (01m17.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m17.0s/40m0s  08/25 iters, 25 per VU
+
+running (01m18.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m18.0s/40m0s  08/25 iters, 25 per VU
+
+running (01m19.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m19.0s/40m0s  08/25 iters, 25 per VU
+
+running (01m20.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m20.0s/40m0s  08/25 iters, 25 per VU
+
+running (01m21.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m21.0s/40m0s  08/25 iters, 25 per VU
+
+running (01m22.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m22.0s/40m0s  08/25 iters, 25 per VU
+
+running (01m23.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m23.0s/40m0s  08/25 iters, 25 per VU
+
+running (01m24.0s), 1/1 VUs, 8 complete and 0 interrupted iterations
+eventos   [  32% ] 1 VUs  01m24.0s/40m0s  08/25 iters, 25 per VU
+time="2026-11-06T18:17:07Z" level=info msg="evento 9: 708 ms" source=console
+
+running (01m25.0s), 1/1 VUs, 9 complete and 0 interrupted iterations
+eventos   [  36% ] 1 VUs  01m25.0s/40m0s  09/25 iters, 25 per VU
+
+running (01m26.0s), 1/1 VUs, 9 complete and 0 interrupted iterations
+eventos   [  36% ] 1 VUs  01m26.0s/40m0s  09/25 iters, 25 per VU
+
+running (01m27.0s), 1/1 VUs, 9 complete and 0 interrupted iterations
+eventos   [  36% ] 1 VUs  01m27.0s/40m0s  09/25 iters, 25 per VU
+
+running (01m28.0s), 1/1 VUs, 9 complete and 0 interrupted iterations
+eventos   [  36% ] 1 VUs  01m28.0s/40m0s  09/25 iters, 25 per VU
+
+running (01m29.0s), 1/1 VUs, 9 complete and 0 interrupted iterations
+eventos   [  36% ] 1 VUs  01m29.0s/40m0s  09/25 iters, 25 per VU
+
+running (01m30.0s), 1/1 VUs, 9 complete and 0 interrupted iterations
+eventos   [  36% ] 1 VUs  01m30.0s/40m0s  09/25 iters, 25 per VU
+
+running (01m31.0s), 1/1 VUs, 9 complete and 0 interrupted iterations
+eventos   [  36% ] 1 VUs  01m31.0s/40m0s  09/25 iters, 25 per VU
+
+running (01m32.0s), 1/1 VUs, 9 complete and 0 interrupted iterations
+eventos   [  36% ] 1 VUs  01m32.0s/40m0s  09/25 iters, 25 per VU
+
+running (01m33.0s), 1/1 VUs, 9 complete and 0 interrupted iterations
+eventos   [  36% ] 1 VUs  01m33.0s/40m0s  09/25 iters, 25 per VU
+time="2026-11-06T18:17:16Z" level=info msg="evento 10: 114 ms" source=console
+
+running (01m34.0s), 1/1 VUs, 10 complete and 0 interrupted iterations
+eventos   [  40% ] 1 VUs  01m34.0s/40m0s  10/25 iters, 25 per VU
+
+running (01m35.0s), 1/1 VUs, 10 complete and 0 interrupted iterations
+eventos   [  40% ] 1 VUs  01m35.0s/40m0s  10/25 iters, 25 per VU
+
+running (01m36.0s), 1/1 VUs, 10 complete and 0 interrupted iterations
+eventos   [  40% ] 1 VUs  01m36.0s/40m0s  10/25 iters, 25 per VU
+
+running (01m37.0s), 1/1 VUs, 10 complete and 0 interrupted iterations
+eventos   [  40% ] 1 VUs  01m37.0s/40m0s  10/25 iters, 25 per VU
+
+running (01m38.0s), 1/1 VUs, 10 complete and 0 interrupted iterations
+eventos   [  40% ] 1 VUs  01m38.0s/40m0s  10/25 iters, 25 per VU
+
+running (01m39.0s), 1/1 VUs, 10 complete and 0 interrupted iterations
+eventos   [  40% ] 1 VUs  01m39.0s/40m0s  10/25 iters, 25 per VU
+
+running (01m40.0s), 1/1 VUs, 10 complete and 0 interrupted iterations
+eventos   [  40% ] 1 VUs  01m40.0s/40m0s  10/25 iters, 25 per VU
+
+running (01m41.0s), 1/1 VUs, 10 complete and 0 interrupted iterations
+eventos   [  40% ] 1 VUs  01m41.0s/40m0s  10/25 iters, 25 per VU
+
+running (01m42.0s), 1/1 VUs, 10 complete and 0 interrupted iterations
+eventos   [  40% ] 1 VUs  01m42.0s/40m0s  10/25 iters, 25 per VU
+
+running (01m43.0s), 1/1 VUs, 10 complete and 0 interrupted iterations
+eventos   [  40% ] 1 VUs  01m43.0s/40m0s  10/25 iters, 25 per VU
+time="2026-11-06T18:17:26Z" level=info msg="evento 11: 88 ms" source=console
+
+running (01m44.0s), 1/1 VUs, 11 complete and 0 interrupted iterations
+eventos   [  44% ] 1 VUs  01m44.0s/40m0s  11/25 iters, 25 per VU
+
+running (01m45.0s), 1/1 VUs, 11 complete and 0 interrupted iterations
+eventos   [  44% ] 1 VUs  01m45.0s/40m0s  11/25 iters, 25 per VU
+
+running (01m46.0s), 1/1 VUs, 11 complete and 0 interrupted iterations
+eventos   [  44% ] 1 VUs  01m46.0s/40m0s  11/25 iters, 25 per VU
+
+running (01m47.0s), 1/1 VUs, 11 complete and 0 interrupted iterations
+eventos   [  44% ] 1 VUs  01m47.0s/40m0s  11/25 iters, 25 per VU
+
+running (01m48.0s), 1/1 VUs, 11 complete and 0 interrupted iterations
+eventos   [  44% ] 1 VUs  01m48.0s/40m0s  11/25 iters, 25 per VU
+
+running (01m49.0s), 1/1 VUs, 11 complete and 0 interrupted iterations
+eventos   [  44% ] 1 VUs  01m49.0s/40m0s  11/25 iters, 25 per VU
+
+running (01m50.0s), 1/1 VUs, 11 complete and 0 interrupted iterations
+eventos   [  44% ] 1 VUs  01m50.0s/40m0s  11/25 iters, 25 per VU
+
+running (01m51.0s), 1/1 VUs, 11 complete and 0 interrupted iterations
+eventos   [  44% ] 1 VUs  01m51.0s/40m0s  11/25 iters, 25 per VU
+
+running (01m52.0s), 1/1 VUs, 11 complete and 0 interrupted iterations
+eventos   [  44% ] 1 VUs  01m52.0s/40m0s  11/25 iters, 25 per VU
+
+running (01m53.0s), 1/1 VUs, 11 complete and 0 interrupted iterations
+eventos   [  44% ] 1 VUs  01m53.0s/40m0s  11/25 iters, 25 per VU
+time="2026-11-06T18:17:36Z" level=info msg="evento 12: 111 ms" source=console
+
+running (01m54.0s), 1/1 VUs, 12 complete and 0 interrupted iterations
+eventos   [  48% ] 1 VUs  01m54.0s/40m0s  12/25 iters, 25 per VU
+
+running (01m55.0s), 1/1 VUs, 12 complete and 0 interrupted iterations
+eventos   [  48% ] 1 VUs  01m55.0s/40m0s  12/25 iters, 25 per VU
+
+running (01m56.0s), 1/1 VUs, 12 complete and 0 interrupted iterations
+eventos   [  48% ] 1 VUs  01m56.0s/40m0s  12/25 iters, 25 per VU
+
+running (01m57.0s), 1/1 VUs, 12 complete and 0 interrupted iterations
+eventos   [  48% ] 1 VUs  01m57.0s/40m0s  12/25 iters, 25 per VU
+
+running (01m58.0s), 1/1 VUs, 12 complete and 0 interrupted iterations
+eventos   [  48% ] 1 VUs  01m58.0s/40m0s  12/25 iters, 25 per VU
+
+running (01m59.0s), 1/1 VUs, 12 complete and 0 interrupted iterations
+eventos   [  48% ] 1 VUs  01m59.0s/40m0s  12/25 iters, 25 per VU
+
+running (02m00.0s), 1/1 VUs, 12 complete and 0 interrupted iterations
+eventos   [  48% ] 1 VUs  02m00.0s/40m0s  12/25 iters, 25 per VU
+
+running (02m01.0s), 1/1 VUs, 12 complete and 0 interrupted iterations
+eventos   [  48% ] 1 VUs  02m01.0s/40m0s  12/25 iters, 25 per VU
+
+running (02m02.0s), 1/1 VUs, 12 complete and 0 interrupted iterations
+eventos   [  48% ] 1 VUs  02m02.0s/40m0s  12/25 iters, 25 per VU
+
+running (02m03.0s), 1/1 VUs, 12 complete and 0 interrupted iterations
+eventos   [  48% ] 1 VUs  02m03.0s/40m0s  12/25 iters, 25 per VU
+time="2026-11-06T18:17:46Z" level=info msg="evento 13: 123 ms" source=console
+
+running (02m04.0s), 1/1 VUs, 13 complete and 0 interrupted iterations
+eventos   [  52% ] 1 VUs  02m04.0s/40m0s  13/25 iters, 25 per VU
+
+running (02m05.0s), 1/1 VUs, 13 complete and 0 interrupted iterations
+eventos   [  52% ] 1 VUs  02m05.0s/40m0s  13/25 iters, 25 per VU
+
+running (02m06.0s), 1/1 VUs, 13 complete and 0 interrupted iterations
+eventos   [  52% ] 1 VUs  02m06.0s/40m0s  13/25 iters, 25 per VU
+
+running (02m07.0s), 1/1 VUs, 13 complete and 0 interrupted iterations
+eventos   [  52% ] 1 VUs  02m07.0s/40m0s  13/25 iters, 25 per VU
+
+running (02m08.0s), 1/1 VUs, 13 complete and 0 interrupted iterations
+eventos   [  52% ] 1 VUs  02m08.0s/40m0s  13/25 iters, 25 per VU
+
+running (02m09.0s), 1/1 VUs, 13 complete and 0 interrupted iterations
+eventos   [  52% ] 1 VUs  02m09.0s/40m0s  13/25 iters, 25 per VU
+
+running (02m10.0s), 1/1 VUs, 13 complete and 0 interrupted iterations
+eventos   [  52% ] 1 VUs  02m10.0s/40m0s  13/25 iters, 25 per VU
+
+running (02m11.0s), 1/1 VUs, 13 complete and 0 interrupted iterations
+eventos   [  52% ] 1 VUs  02m11.0s/40m0s  13/25 iters, 25 per VU
+
+running (02m12.0s), 1/1 VUs, 13 complete and 0 interrupted iterations
+eventos   [  52% ] 1 VUs  02m12.0s/40m0s  13/25 iters, 25 per VU
+
+running (02m13.0s), 1/1 VUs, 13 complete and 0 interrupted iterations
+eventos   [  52% ] 1 VUs  02m13.0s/40m0s  13/25 iters, 25 per VU
+time="2026-11-06T18:17:57Z" level=info msg="evento 14: 246 ms" source=console
+
+running (02m14.0s), 1/1 VUs, 14 complete and 0 interrupted iterations
+eventos   [  56% ] 1 VUs  02m14.0s/40m0s  14/25 iters, 25 per VU
+
+running (02m15.0s), 1/1 VUs, 14 complete and 0 interrupted iterations
+eventos   [  56% ] 1 VUs  02m15.0s/40m0s  14/25 iters, 25 per VU
+
+running (02m16.0s), 1/1 VUs, 14 complete and 0 interrupted iterations
+eventos   [  56% ] 1 VUs  02m16.0s/40m0s  14/25 iters, 25 per VU
+
+running (02m17.0s), 1/1 VUs, 14 complete and 0 interrupted iterations
+eventos   [  56% ] 1 VUs  02m17.0s/40m0s  14/25 iters, 25 per VU
+
+running (02m18.0s), 1/1 VUs, 14 complete and 0 interrupted iterations
+eventos   [  56% ] 1 VUs  02m18.0s/40m0s  14/25 iters, 25 per VU
+
+running (02m19.0s), 1/1 VUs, 14 complete and 0 interrupted iterations
+eventos   [  56% ] 1 VUs  02m19.0s/40m0s  14/25 iters, 25 per VU
+
+running (02m20.0s), 1/1 VUs, 14 complete and 0 interrupted iterations
+eventos   [  56% ] 1 VUs  02m20.0s/40m0s  14/25 iters, 25 per VU
+
+running (02m21.0s), 1/1 VUs, 14 complete and 0 interrupted iterations
+eventos   [  56% ] 1 VUs  02m21.0s/40m0s  14/25 iters, 25 per VU
+
+running (02m22.0s), 1/1 VUs, 14 complete and 0 interrupted iterations
+eventos   [  56% ] 1 VUs  02m22.0s/40m0s  14/25 iters, 25 per VU
+
+running (02m23.0s), 1/1 VUs, 14 complete and 0 interrupted iterations
+eventos   [  56% ] 1 VUs  02m23.0s/40m0s  14/25 iters, 25 per VU
+time="2026-11-06T18:18:06Z" level=info msg="evento 15: 109 ms" source=console
+
+running (02m24.0s), 1/1 VUs, 15 complete and 0 interrupted iterations
+eventos   [  60% ] 1 VUs  02m24.0s/40m0s  15/25 iters, 25 per VU
+
+running (02m25.0s), 1/1 VUs, 15 complete and 0 interrupted iterations
+eventos   [  60% ] 1 VUs  02m25.0s/40m0s  15/25 iters, 25 per VU
+
+running (02m26.0s), 1/1 VUs, 15 complete and 0 interrupted iterations
+eventos   [  60% ] 1 VUs  02m26.0s/40m0s  15/25 iters, 25 per VU
+
+running (02m27.0s), 1/1 VUs, 15 complete and 0 interrupted iterations
+eventos   [  60% ] 1 VUs  02m27.0s/40m0s  15/25 iters, 25 per VU
+
+running (02m28.0s), 1/1 VUs, 15 complete and 0 interrupted iterations
+eventos   [  60% ] 1 VUs  02m28.0s/40m0s  15/25 iters, 25 per VU
+
+running (02m29.0s), 1/1 VUs, 15 complete and 0 interrupted iterations
+eventos   [  60% ] 1 VUs  02m29.0s/40m0s  15/25 iters, 25 per VU
+
+running (02m30.0s), 1/1 VUs, 15 complete and 0 interrupted iterations
+eventos   [  60% ] 1 VUs  02m30.0s/40m0s  15/25 iters, 25 per VU
+
+running (02m31.0s), 1/1 VUs, 15 complete and 0 interrupted iterations
+eventos   [  60% ] 1 VUs  02m31.0s/40m0s  15/25 iters, 25 per VU
+
+running (02m32.0s), 1/1 VUs, 15 complete and 0 interrupted iterations
+eventos   [  60% ] 1 VUs  02m32.0s/40m0s  15/25 iters, 25 per VU
+
+running (02m33.0s), 1/1 VUs, 15 complete and 0 interrupted iterations
+eventos   [  60% ] 1 VUs  02m33.0s/40m0s  15/25 iters, 25 per VU
+time="2026-11-06T18:18:17Z" level=info msg="evento 16: 152 ms" source=console
+
+running (02m34.0s), 1/1 VUs, 16 complete and 0 interrupted iterations
+eventos   [  64% ] 1 VUs  02m34.0s/40m0s  16/25 iters, 25 per VU
+
+running (02m35.0s), 1/1 VUs, 16 complete and 0 interrupted iterations
+eventos   [  64% ] 1 VUs  02m35.0s/40m0s  16/25 iters, 25 per VU
+
+running (02m36.0s), 1/1 VUs, 16 complete and 0 interrupted iterations
+eventos   [  64% ] 1 VUs  02m36.0s/40m0s  16/25 iters, 25 per VU
+
+running (02m37.0s), 1/1 VUs, 16 complete and 0 interrupted iterations
+eventos   [  64% ] 1 VUs  02m37.0s/40m0s  16/25 iters, 25 per VU
+
+running (02m38.0s), 1/1 VUs, 16 complete and 0 interrupted iterations
+eventos   [  64% ] 1 VUs  02m38.0s/40m0s  16/25 iters, 25 per VU
+
+running (02m39.0s), 1/1 VUs, 16 complete and 0 interrupted iterations
+eventos   [  64% ] 1 VUs  02m39.0s/40m0s  16/25 iters, 25 per VU
+
+running (02m40.0s), 1/1 VUs, 16 complete and 0 interrupted iterations
+eventos   [  64% ] 1 VUs  02m40.0s/40m0s  16/25 iters, 25 per VU
+
+running (02m41.0s), 1/1 VUs, 16 complete and 0 interrupted iterations
+eventos   [  64% ] 1 VUs  02m41.0s/40m0s  16/25 iters, 25 per VU
+
+running (02m42.0s), 1/1 VUs, 16 complete and 0 interrupted iterations
+eventos   [  64% ] 1 VUs  02m42.0s/40m0s  16/25 iters, 25 per VU
+
+running (02m43.0s), 1/1 VUs, 16 complete and 0 interrupted iterations
+eventos   [  64% ] 1 VUs  02m43.0s/40m0s  16/25 iters, 25 per VU
+time="2026-11-06T18:18:26Z" level=info msg="evento 17: 116 ms" source=console
+
+running (02m44.0s), 1/1 VUs, 17 complete and 0 interrupted iterations
+eventos   [  68% ] 1 VUs  02m44.0s/40m0s  17/25 iters, 25 per VU
+
+running (02m45.0s), 1/1 VUs, 17 complete and 0 interrupted iterations
+eventos   [  68% ] 1 VUs  02m45.0s/40m0s  17/25 iters, 25 per VU
+
+running (02m46.0s), 1/1 VUs, 17 complete and 0 interrupted iterations
+eventos   [  68% ] 1 VUs  02m46.0s/40m0s  17/25 iters, 25 per VU
+
+running (02m47.0s), 1/1 VUs, 17 complete and 0 interrupted iterations
+eventos   [  68% ] 1 VUs  02m47.0s/40m0s  17/25 iters, 25 per VU
+
+running (02m48.0s), 1/1 VUs, 17 complete and 0 interrupted iterations
+eventos   [  68% ] 1 VUs  02m48.0s/40m0s  17/25 iters, 25 per VU
+
+running (02m49.0s), 1/1 VUs, 17 complete and 0 interrupted iterations
+eventos   [  68% ] 1 VUs  02m49.0s/40m0s  17/25 iters, 25 per VU
+
+running (02m50.0s), 1/1 VUs, 17 complete and 0 interrupted iterations
+eventos   [  68% ] 1 VUs  02m50.0s/40m0s  17/25 iters, 25 per VU
+
+running (02m51.0s), 1/1 VUs, 17 complete and 0 interrupted iterations
+eventos   [  68% ] 1 VUs  02m51.0s/40m0s  17/25 iters, 25 per VU
+
+running (02m52.0s), 1/1 VUs, 17 complete and 0 interrupted iterations
+eventos   [  68% ] 1 VUs  02m52.0s/40m0s  17/25 iters, 25 per VU
+
+running (02m53.0s), 1/1 VUs, 17 complete and 0 interrupted iterations
+eventos   [  68% ] 1 VUs  02m53.0s/40m0s  17/25 iters, 25 per VU
+time="2026-11-06T18:18:36Z" level=info msg="evento 18: 92 ms" source=console
+
+running (02m54.0s), 1/1 VUs, 18 complete and 0 interrupted iterations
+eventos   [  72% ] 1 VUs  02m54.0s/40m0s  18/25 iters, 25 per VU
+
+running (02m55.0s), 1/1 VUs, 18 complete and 0 interrupted iterations
+eventos   [  72% ] 1 VUs  02m55.0s/40m0s  18/25 iters, 25 per VU
+
+running (02m56.0s), 1/1 VUs, 18 complete and 0 interrupted iterations
+eventos   [  72% ] 1 VUs  02m56.0s/40m0s  18/25 iters, 25 per VU
+
+running (02m57.0s), 1/1 VUs, 18 complete and 0 interrupted iterations
+eventos   [  72% ] 1 VUs  02m57.0s/40m0s  18/25 iters, 25 per VU
+
+running (02m58.0s), 1/1 VUs, 18 complete and 0 interrupted iterations
+eventos   [  72% ] 1 VUs  02m58.0s/40m0s  18/25 iters, 25 per VU
+
+running (02m59.0s), 1/1 VUs, 18 complete and 0 interrupted iterations
+eventos   [  72% ] 1 VUs  02m59.0s/40m0s  18/25 iters, 25 per VU
+
+running (03m00.0s), 1/1 VUs, 18 complete and 0 interrupted iterations
+eventos   [  72% ] 1 VUs  03m00.0s/40m0s  18/25 iters, 25 per VU
+
+running (03m01.0s), 1/1 VUs, 18 complete and 0 interrupted iterations
+eventos   [  72% ] 1 VUs  03m01.0s/40m0s  18/25 iters, 25 per VU
+
+running (03m02.0s), 1/1 VUs, 18 complete and 0 interrupted iterations
+eventos   [  72% ] 1 VUs  03m02.0s/40m0s  18/25 iters, 25 per VU
+
+running (03m03.0s), 1/1 VUs, 18 complete and 0 interrupted iterations
+eventos   [  72% ] 1 VUs  03m03.0s/40m0s  18/25 iters, 25 per VU
+time="2026-11-06T18:18:47Z" level=info msg="evento 19: 156 ms" source=console
+
+running (03m04.0s), 1/1 VUs, 19 complete and 0 interrupted iterations
+eventos   [  76% ] 1 VUs  03m04.0s/40m0s  19/25 iters, 25 per VU
+
+running (03m05.0s), 1/1 VUs, 19 complete and 0 interrupted iterations
+eventos   [  76% ] 1 VUs  03m05.0s/40m0s  19/25 iters, 25 per VU
+
+running (03m06.0s), 1/1 VUs, 19 complete and 0 interrupted iterations
+eventos   [  76% ] 1 VUs  03m06.0s/40m0s  19/25 iters, 25 per VU
+
+running (03m07.0s), 1/1 VUs, 19 complete and 0 interrupted iterations
+eventos   [  76% ] 1 VUs  03m07.0s/40m0s  19/25 iters, 25 per VU
+
+running (03m08.0s), 1/1 VUs, 19 complete and 0 interrupted iterations
+eventos   [  76% ] 1 VUs  03m08.0s/40m0s  19/25 iters, 25 per VU
+
+running (03m09.0s), 1/1 VUs, 19 complete and 0 interrupted iterations
+eventos   [  76% ] 1 VUs  03m09.0s/40m0s  19/25 iters, 25 per VU
+
+running (03m10.0s), 1/1 VUs, 19 complete and 0 interrupted iterations
+eventos   [  76% ] 1 VUs  03m10.0s/40m0s  19/25 iters, 25 per VU
+
+running (03m11.0s), 1/1 VUs, 19 complete and 0 interrupted iterations
+eventos   [  76% ] 1 VUs  03m11.0s/40m0s  19/25 iters, 25 per VU
+
+running (03m12.0s), 1/1 VUs, 19 complete and 0 interrupted iterations
+eventos   [  76% ] 1 VUs  03m12.0s/40m0s  19/25 iters, 25 per VU
+
+running (03m13.0s), 1/1 VUs, 19 complete and 0 interrupted iterations
+eventos   [  76% ] 1 VUs  03m13.0s/40m0s  19/25 iters, 25 per VU
+time="2026-11-06T18:18:57Z" level=info msg="evento 20: 174 ms" source=console
+
+running (03m14.0s), 1/1 VUs, 20 complete and 0 interrupted iterations
+eventos   [  80% ] 1 VUs  03m14.0s/40m0s  20/25 iters, 25 per VU
+
+running (03m15.0s), 1/1 VUs, 20 complete and 0 interrupted iterations
+eventos   [  80% ] 1 VUs  03m15.0s/40m0s  20/25 iters, 25 per VU
+
+running (03m16.0s), 1/1 VUs, 20 complete and 0 interrupted iterations
+eventos   [  80% ] 1 VUs  03m16.0s/40m0s  20/25 iters, 25 per VU
+
+running (03m17.0s), 1/1 VUs, 20 complete and 0 interrupted iterations
+eventos   [  80% ] 1 VUs  03m17.0s/40m0s  20/25 iters, 25 per VU
+
+running (03m18.0s), 1/1 VUs, 20 complete and 0 interrupted iterations
+eventos   [  80% ] 1 VUs  03m18.0s/40m0s  20/25 iters, 25 per VU
+
+running (03m19.0s), 1/1 VUs, 20 complete and 0 interrupted iterations
+eventos   [  80% ] 1 VUs  03m19.0s/40m0s  20/25 iters, 25 per VU
+
+running (03m20.0s), 1/1 VUs, 20 complete and 0 interrupted iterations
+eventos   [  80% ] 1 VUs  03m20.0s/40m0s  20/25 iters, 25 per VU
+
+running (03m21.0s), 1/1 VUs, 20 complete and 0 interrupted iterations
+eventos   [  80% ] 1 VUs  03m21.0s/40m0s  20/25 iters, 25 per VU
+
+running (03m22.0s), 1/1 VUs, 20 complete and 0 interrupted iterations
+eventos   [  80% ] 1 VUs  03m22.0s/40m0s  20/25 iters, 25 per VU
+
+running (03m23.0s), 1/1 VUs, 20 complete and 0 interrupted iterations
+eventos   [  80% ] 1 VUs  03m23.0s/40m0s  20/25 iters, 25 per VU
+time="2026-11-06T18:19:07Z" level=info msg="evento 21: 159 ms" source=console
+
+running (03m24.0s), 1/1 VUs, 21 complete and 0 interrupted iterations
+eventos   [  84% ] 1 VUs  03m24.0s/40m0s  21/25 iters, 25 per VU
+
+running (03m25.0s), 1/1 VUs, 21 complete and 0 interrupted iterations
+eventos   [  84% ] 1 VUs  03m25.0s/40m0s  21/25 iters, 25 per VU
+
+running (03m26.0s), 1/1 VUs, 21 complete and 0 interrupted iterations
+eventos   [  84% ] 1 VUs  03m26.0s/40m0s  21/25 iters, 25 per VU
+
+running (03m27.0s), 1/1 VUs, 21 complete and 0 interrupted iterations
+eventos   [  84% ] 1 VUs  03m27.0s/40m0s  21/25 iters, 25 per VU
+
+running (03m28.0s), 1/1 VUs, 21 complete and 0 interrupted iterations
+eventos   [  84% ] 1 VUs  03m28.0s/40m0s  21/25 iters, 25 per VU
+
+running (03m29.0s), 1/1 VUs, 21 complete and 0 interrupted iterations
+eventos   [  84% ] 1 VUs  03m29.0s/40m0s  21/25 iters, 25 per VU
+
+running (03m30.0s), 1/1 VUs, 21 complete and 0 interrupted iterations
+eventos   [  84% ] 1 VUs  03m30.0s/40m0s  21/25 iters, 25 per VU
+
+running (03m31.0s), 1/1 VUs, 21 complete and 0 interrupted iterations
+eventos   [  84% ] 1 VUs  03m31.0s/40m0s  21/25 iters, 25 per VU
+
+running (03m32.0s), 1/1 VUs, 21 complete and 0 interrupted iterations
+eventos   [  84% ] 1 VUs  03m32.0s/40m0s  21/25 iters, 25 per VU
+
+running (03m33.0s), 1/1 VUs, 21 complete and 0 interrupted iterations
+eventos   [  84% ] 1 VUs  03m33.0s/40m0s  21/25 iters, 25 per VU
+time="2026-11-06T18:19:16Z" level=info msg="evento 22: 129 ms" source=console
+
+running (03m34.0s), 1/1 VUs, 22 complete and 0 interrupted iterations
+eventos   [  88% ] 1 VUs  03m34.0s/40m0s  22/25 iters, 25 per VU
+
+running (03m35.0s), 1/1 VUs, 22 complete and 0 interrupted iterations
+eventos   [  88% ] 1 VUs  03m35.0s/40m0s  22/25 iters, 25 per VU
+
+running (03m36.0s), 1/1 VUs, 22 complete and 0 interrupted iterations
+eventos   [  88% ] 1 VUs  03m36.0s/40m0s  22/25 iters, 25 per VU
+
+running (03m37.0s), 1/1 VUs, 22 complete and 0 interrupted iterations
+eventos   [  88% ] 1 VUs  03m37.0s/40m0s  22/25 iters, 25 per VU
+
+running (03m38.0s), 1/1 VUs, 22 complete and 0 interrupted iterations
+eventos   [  88% ] 1 VUs  03m38.0s/40m0s  22/25 iters, 25 per VU
+
+running (03m39.0s), 1/1 VUs, 22 complete and 0 interrupted iterations
+eventos   [  88% ] 1 VUs  03m39.0s/40m0s  22/25 iters, 25 per VU
+
+running (03m40.0s), 1/1 VUs, 22 complete and 0 interrupted iterations
+eventos   [  88% ] 1 VUs  03m40.0s/40m0s  22/25 iters, 25 per VU
+
+running (03m41.0s), 1/1 VUs, 22 complete and 0 interrupted iterations
+eventos   [  88% ] 1 VUs  03m41.0s/40m0s  22/25 iters, 25 per VU
+
+running (03m42.0s), 1/1 VUs, 22 complete and 0 interrupted iterations
+eventos   [  88% ] 1 VUs  03m42.0s/40m0s  22/25 iters, 25 per VU
+
+running (03m43.0s), 1/1 VUs, 22 complete and 0 interrupted iterations
+eventos   [  88% ] 1 VUs  03m43.0s/40m0s  22/25 iters, 25 per VU
+time="2026-11-06T18:19:27Z" level=info msg="evento 23: 147 ms" source=console
+
+running (03m44.0s), 1/1 VUs, 23 complete and 0 interrupted iterations
+eventos   [  92% ] 1 VUs  03m44.0s/40m0s  23/25 iters, 25 per VU
+
+running (03m45.0s), 1/1 VUs, 23 complete and 0 interrupted iterations
+eventos   [  92% ] 1 VUs  03m45.0s/40m0s  23/25 iters, 25 per VU
+
+running (03m46.0s), 1/1 VUs, 23 complete and 0 interrupted iterations
+eventos   [  92% ] 1 VUs  03m46.0s/40m0s  23/25 iters, 25 per VU
+
+running (03m47.0s), 1/1 VUs, 23 complete and 0 interrupted iterations
+eventos   [  92% ] 1 VUs  03m47.0s/40m0s  23/25 iters, 25 per VU
+
+running (03m48.0s), 1/1 VUs, 23 complete and 0 interrupted iterations
+eventos   [  92% ] 1 VUs  03m48.0s/40m0s  23/25 iters, 25 per VU
+
+running (03m49.0s), 1/1 VUs, 23 complete and 0 interrupted iterations
+eventos   [  92% ] 1 VUs  03m49.0s/40m0s  23/25 iters, 25 per VU
+
+running (03m50.0s), 1/1 VUs, 23 complete and 0 interrupted iterations
+eventos   [  92% ] 1 VUs  03m50.0s/40m0s  23/25 iters, 25 per VU
+
+running (03m51.0s), 1/1 VUs, 23 complete and 0 interrupted iterations
+eventos   [  92% ] 1 VUs  03m51.0s/40m0s  23/25 iters, 25 per VU
+
+running (03m52.0s), 1/1 VUs, 23 complete and 0 interrupted iterations
+eventos   [  92% ] 1 VUs  03m52.0s/40m0s  23/25 iters, 25 per VU
+
+running (03m53.0s), 1/1 VUs, 23 complete and 0 interrupted iterations
+eventos   [  92% ] 1 VUs  03m53.0s/40m0s  23/25 iters, 25 per VU
+time="2026-11-06T18:19:36Z" level=info msg="evento 24: 107 ms" source=console
+
+running (03m54.0s), 1/1 VUs, 24 complete and 0 interrupted iterations
+eventos   [  96% ] 1 VUs  03m54.0s/40m0s  24/25 iters, 25 per VU
+
+running (03m55.0s), 1/1 VUs, 24 complete and 0 interrupted iterations
+eventos   [  96% ] 1 VUs  03m55.0s/40m0s  24/25 iters, 25 per VU
+
+running (03m56.0s), 1/1 VUs, 24 complete and 0 interrupted iterations
+eventos   [  96% ] 1 VUs  03m56.0s/40m0s  24/25 iters, 25 per VU
+
+running (03m57.0s), 1/1 VUs, 24 complete and 0 interrupted iterations
+eventos   [  96% ] 1 VUs  03m57.0s/40m0s  24/25 iters, 25 per VU
+
+running (03m58.0s), 1/1 VUs, 24 complete and 0 interrupted iterations
+eventos   [  96% ] 1 VUs  03m58.0s/40m0s  24/25 iters, 25 per VU
+
+running (03m59.0s), 1/1 VUs, 24 complete and 0 interrupted iterations
+eventos   [  96% ] 1 VUs  03m59.0s/40m0s  24/25 iters, 25 per VU
+
+running (04m00.0s), 1/1 VUs, 24 complete and 0 interrupted iterations
+eventos   [  96% ] 1 VUs  04m00.0s/40m0s  24/25 iters, 25 per VU
+
+running (04m01.0s), 1/1 VUs, 24 complete and 0 interrupted iterations
+eventos   [  96% ] 1 VUs  04m01.0s/40m0s  24/25 iters, 25 per VU
+
+running (04m02.0s), 1/1 VUs, 24 complete and 0 interrupted iterations
+eventos   [  96% ] 1 VUs  04m02.0s/40m0s  24/25 iters, 25 per VU
+
+running (04m03.0s), 1/1 VUs, 24 complete and 0 interrupted iterations
+eventos   [  96% ] 1 VUs  04m03.0s/40m0s  24/25 iters, 25 per VU
+time="2026-11-06T18:19:46Z" level=info msg="evento 25: 120 ms" source=console
+
+
+  █ THRESHOLDS 
+
+    eventos_perdidos
+    ✓ 'count<1' count=0
+
+    retraso_indice_ms
+    ✓ 'p(95)<5000' p(95)=265.99ms
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 25      0.102631/s
+    checks_succeeded...: 100.00% 25 out of 25
+    checks_failed......: 0.00%   0 out of 25
+
+    ✓ el mock aceptó el precio
+
+    CUSTOM
+    eventos_medidos................: 25     0.102631/s
+    eventos_perdidos...............: 0      0/s
+    retraso_indice_ms..............: avg=161.96ms med=129ms  p(90)=218.4ms p(95)=265.99ms p(99)=603.11ms max=708ms   min=87ms    
+
+    HTTP
+    http_req_duration..............: avg=3.87ms   med=2.88ms p(90)=4.19ms  p(95)=5.07ms   p(99)=45.36ms  max=52.62ms min=266.11µs
+      { expected_response:true }...: avg=3.87ms   med=2.88ms p(90)=4.19ms  p(95)=5.07ms   p(99)=45.36ms  max=52.62ms min=266.11µs
+    http_req_failed................: 0.00%  0 out of 9991
+    http_reqs......................: 9991   41.015408/s
+
+    EXECUTION
+    iteration_duration.............: avg=9.74s    med=9.99s  p(90)=10.06s  p(95)=10.11s   p(99)=10.44s   max=10.54s  min=3.76s   
+    iterations.....................: 25     0.102631/s
+    vus............................: 1      min=1         max=1
+    vus_max........................: 1      min=1         max=1
+
+    NETWORK
+    data_received..................: 16 MB  66 kB/s
+    data_sent......................: 1.7 MB 6.9 kB/s
+
+
+
+
+running (04m03.6s), 0/1 VUs, 25 complete and 0 interrupted iterations
+eventos ✓ [ 100% ] 1 VUs  04m03.6s/40m0s  25/25 iters, 25 per VU

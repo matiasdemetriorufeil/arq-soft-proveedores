@@ -3,10 +3,12 @@
 #   Copy-Item .env.example .env     (PowerShell)  ·  cp .env.example .env  (bash)
 #   docker compose up -d --build
 #
-# Al host salen solo el gateway y la UI de Jaeger. Postgres y las réplicas de
-# proveedores-service quedan en la red interna: la única entrada al sistema es
-# el gateway. Las migraciones y el seed los aplica el propio servicio al
-# arrancar, así que Postgres no necesita scripts de inicio.
+# Al host salen el gateway (la única entrada al sistema) y las consolas de
+# operación: la UI de Jaeger, la de RabbitMQ y el control del mock de FAV, que
+# hace de proveedor externo. Las bases, el broker y los servicios quedan en la
+# red interna. Las migraciones y el seed los aplica cada servicio al arrancar;
+# Postgres solo corre al crear el volumen el script que arma una base por
+# servicio (infra/postgres/init/).
 
 name: arq-soft-proveedores
 
@@ -25,9 +27,28 @@ x-proveedores: &proveedores
     # la consulta a Postgres. Si se saca, el servicio arranca igual: las trazas
     # quedan en no-op.
     OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    # Consume ListaPreciosActualizada (ADR-005). Las dos réplicas se suscriben y
+    # la cola le entrega a una sola; si esa cae, toma la otra.
+    RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    # Caché de la capacidad (ADR-007). En false, la capacidad lee directo de
+    # PostgreSQL: es lo que deja medir con y sin caché.
+    REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    CACHE_HABILITADA: ${CACHE_HABILITADA:-true}
+    # Búsqueda (ADR-006). El índice se reconstruye solo si no existe.
+    MEILI_URL: http://meilisearch:7700
+    MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
   depends_on:
     postgres:
       condition: service_healthy
+    # Estas tres no son dependencias duras: si no están, el servicio atiende la
+    # capacidad igual y se conecta cuando vuelven. service_started solo ordena el
+    # arranque.
+    rabbitmq:
+      condition: service_started
+    redis:
+      condition: service_started
+    meilisearch:
+      condition: service_started
   # La imagen del servicio es distroless: no trae shell ni cliente HTTP, así que
   # el healthcheck es el binario `sonda` de su propia imagen, que pregunta por
   # /readyz y sale 0 o 1.
@@ -47,8 +68,14 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?falta POSTGRES_USER en .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en .env}
       POSTGRES_DB: ${POSTGRES_DB:?falta POSTGRES_DB en .env}
+      # La base de stock-service, con su propio usuario (ADR-003). La crea el
+      # script de init solo cuando el volumen está vacío.
+      STOCK_DB: ${STOCK_DB:?falta STOCK_DB en .env}
+      STOCK_DB_USER: ${STOCK_DB_USER:?falta STOCK_DB_USER en .env}
+      STOCK_DB_PASSWORD: ${STOCK_DB_PASSWORD:?falta STOCK_DB_PASSWORD en .env}
     volumes:
       - datos-postgres:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       # El $$ escapa el $ para que lo expanda la shell del contenedor y no compose.
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
@@ -72,6 +99,139 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+    networks: [interna]
+    restart: unless-stopped
+
+  # Broker de los eventos de dominio (ADR-005). La UI de administración se
+  # publica para ver las colas y la de mensajes fallidos durante la demo.
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?falta RABBITMQ_USER en .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?falta RABBITMQ_PASSWORD en .env}
+    ports:
+      - "${PUERTO_RABBITMQ_UI:-15672}:15672"
+    volumes:
+      - datos-rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    networks: [interna]
+    restart: unless-stopped
+
+  # Base documental de import-service (ADR-003): guarda cada importación con
+  # la respuesta cruda del proveedor, que cambia de forma según quién la manda.
+  mongodb:
+    image: mongo:8.0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:?falta MONGO_USER en .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?falta MONGO_PASSWORD en .env}
+    volumes:
+      - datos-mongodb:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks: [interna]
+    restart: unless-stopped
+
+  # Caché de lecturas de proveedores-service (ADR-007). Sin persistencia a
+  # propósito: si se reinicia, se vuelve a llenar desde PostgreSQL.
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?falta REDIS_PASSWORD en .env}", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks: [interna]
+    restart: unless-stopped
+
+  # Motor de búsqueda (ADR-006). El índice se puede reconstruir desde
+  # PostgreSQL, así que el volumen solo evita reindexar en cada arranque.
+  meilisearch:
+    image: getmeili/meilisearch:v1.14
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?falta MEILI_MASTER_KEY en .env}
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - datos-meilisearch:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks: [interna]
+    restart: unless-stopped
+
+  # Mock del catálogo de FAV (el grupo de ropa), que cumple su contrato v1.1.0.
+  # Se usa mientras FAV no tenga URL desplegada: con FAV_URL en .env,
+  # import-service apunta al real y este queda sin uso. Su puerto se publica
+  # para simular fallas en el Game Day:
+  #   curl -X POST localhost:8090/_mock/modo -d '{"modo":"caido"}'
+  fav-mock:
+    image: arq-soft/import-service:dev
+    pull_policy: never
+    entrypoint: ["/fav-mock"]
+    environment:
+      PORT: "8090"
+      FAV_MOCK_CLAVE: ${FAV_API_KEY:?falta FAV_API_KEY en .env}
+    ports:
+      - "${PUERTO_FAV_MOCK:-8090}:8090"
+    healthcheck:
+      test: ["CMD", "/sonda"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+    networks: [interna]
+    restart: unless-stopped
+
+  # Importa el catálogo de FAV cada 5 minutos, lo guarda en MongoDB y publica
+  # ListaPreciosActualizada (ADR-009). No pasa por el gateway: es el servicio
+  # el que llama a FAV (consigna 4.1).
+  import-service:
+    build:
+      # El contexto es la raíz del repo: el módulo depende de
+      # pkg/observabilidad y pkg/mensajeria por ruta relativa.
+      context: .
+      dockerfile: services/import-service/Dockerfile
+    image: arq-soft/import-service:dev
+    environment:
+      PORT: "8080"
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/?authSource=admin
+      MONGO_DB: importaciones
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      FAV_URL: ${FAV_URL:-http://fav-mock:8090}
+      FAV_API_KEY: ${FAV_API_KEY}
+      FAV_PROVEEDOR_ID: "11"
+      FAV_FLETE: ${FAV_FLETE:-0}
+      INTERVALO_SINCRONIZACION: ${INTERVALO_SINCRONIZACION:-5m}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      # RabbitMQ y FAV no son dependencias duras: si no están, los eventos
+      # esperan en el outbox y siguen valiendo las últimas ofertas.
+      rabbitmq:
+        condition: service_started
+      fav-mock:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "/sonda"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks: [interna]
     restart: unless-stopped
 
@@ -130,3 +290,6 @@ networks:
 
 volumes:
   datos-postgres:
+  datos-rabbitmq:
+  datos-mongodb:
+  datos-meilisearch:

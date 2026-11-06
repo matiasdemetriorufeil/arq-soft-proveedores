@@ -12,6 +12,7 @@ puso el servicio.
 | Ruta | Qué hace |
 |---|---|
 | `GET /api/v1/proveedores/recomendados` | Reenvía a `proveedores-service`. Exige `X-API-Key`. Path, query y cuerpo viajan tal cual. |
+| `GET /api/v1/productos/buscar` | Igual que la anterior. No es parte del contrato publicado a otros grupos ([ADR-006](../../docs/adr/ADR-006-busqueda.md)). |
 | `GET /healthz` | 200 siempre que el proceso atienda. No mira a los upstreams: es el chequeo del proceso, no del sistema. |
 | `GET /readyz` | 200 si queda alguna réplica sana; 503 si ninguna responde. Es el healthcheck del contenedor. |
 
@@ -49,8 +50,10 @@ Round-robin sobre las réplicas de `UPSTREAMS_PROVEEDORES`, salteando las caída
   Arranca dándolas por caídas y hace una primera vuelta antes de empezar a
   escuchar, así `/readyz` nunca dice que está listo sin haberlo comprobado.
 - **Caída entre dos sondeos.** Si falla la conexión, la réplica queda marcada y
-  el `GET` se reintenta **una sola vez** en otra sana. El `GET` de la capacidad
-  no tiene efectos, así que repetirlo es seguro.
+  el `GET` se reintenta **una sola vez** en otra sana. Ningún `GET` de los que
+  reenvía tiene efectos, así que repetirlo es seguro.
+- **Conexiones.** Un transporte propio guarda hasta 256 conexiones ociosas por
+  réplica, en lugar de las 2 de `http.DefaultTransport` ([ADR-013](../../docs/adr/ADR-013-capacidad-y-costos.md)).
 - **Recuperación.** El sondeo devuelve la réplica al reparto cuando vuelve a
   responder; no hace falta reiniciar el gateway.
 - **Timeout.** Un `TIMEOUT_UPSTREAM` vencido devuelve 504 y **no** marca la

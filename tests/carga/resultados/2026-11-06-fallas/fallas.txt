@@ -1,0 +1,69 @@
+
+=== Punto de partida
+capacidad: 200 en 0.010838s  búsqueda: 200  pendientes: 0
+
+=== Invalidación: un evento toca un SKU cacheado
+precio cacheado: 992025
+  llegó a 43314 en 7 s
+
+=== Redis caído
+capacidad (SKU existente): 200 en 0.108515s
+capacidad (SKU existente): 200 en 0.108169s
+capacidad (SKU existente): 200 en 0.107919s
+capacidad (SKU inexistente): 404 en 0.123677s
+un evento con Redis caído:
+  llegó a 43315 en 9 s
+de vuelta: 200 en 0.115140s
+
+=== Meilisearch caído: búsqueda 503, capacidad 200, y el evento no se pierde
+búsqueda: 503  capacidad: 200 en 0.017355s
+la oferta se aplica igual:
+  llegó a 43316 en 7 s
+SKU pendientes con el motor caído: 1
+al volver, se indexa sin otro evento:
+  llegó a 43316 en 3 s
+SKU pendientes: 0
+
+=== RabbitMQ caído: la capacidad sigue y el consumidor reconecta
+capacidad: 200 en 0.005162s  búsqueda: 200
+el evento esperó en el outbox y llega al volver:
+  llegó a 43317 en 14 s
+
+=== Una réplica arranca con las tres dependencias caídas
+salud de la réplica 2: healthy
+capacidad servida solo por la réplica 2: 200 en 0.111763s
+
+=== Cae la réplica que consume: la otra toma
+  llegó a 43318 en 7 s
+consume proveedores-service-1 (eventos: réplica 1 0→1, réplica 2 29→29)
+  llegó a 43319 en 5 s
+eventos de proveedores-service-2: 29→30
+
+=== Mensaje basura: va a la DLQ sin reintentos
+{"routed":true}
+  llegó a 1 en 5 s
+
+=== PostgreSQL caído al llegar un evento: 3 entregas y DLQ
+capacidad con un SKU cacheado: 200 en 0.018362s
+capacidad con un SKU no cacheado: 503 en 2.012574s
+{"routed":true}
+  llegó a 2 en 32 s
+de vuelta: 200 en 0.032888s
+
+=== Reconstrucción a mano
+{"time":"2026-11-06T18:23:33.786046808Z","level":"INFO","msg":"índice reconstruido","service":"reindexar","documentos":40}
+{"time":"2026-11-06T18:23:33.787593401Z","level":"INFO","msg":"reconstrucción terminada","service":"reindexar","duracion_ms":339}
+búsqueda después: 200, pendientes: 0
+
+=== Estado final
+arq-soft-proveedores-api-gateway-1 Up 22 minutes (healthy)
+arq-soft-proveedores-fav-mock-1 Up 22 minutes (healthy)
+arq-soft-proveedores-import-service-1 Up 7 minutes (healthy)
+arq-soft-proveedores-jaeger-1 Up 15 minutes (healthy)
+arq-soft-proveedores-meilisearch-1 Up About a minute (healthy)
+arq-soft-proveedores-mongodb-1 Up 37 minutes (healthy)
+arq-soft-proveedores-postgres-1 Up 8 seconds (healthy)
+arq-soft-proveedores-proveedores-service-1-1 Up 55 seconds (healthy)
+arq-soft-proveedores-proveedores-service-2-1 Up About a minute (healthy)
+arq-soft-proveedores-rabbitmq-1 Up About a minute (healthy)
+arq-soft-proveedores-redis-1 Up About a minute (healthy)

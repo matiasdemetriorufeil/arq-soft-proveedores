@@ -1,8 +1,8 @@
 # ADR-010 — Resiliencia (D10)
 
-- **Estado:** aceptado e implementado para `api-gateway` y `proveedores-service` (timeouts, salida del reparto por salud, reintento acotado, error inmediato ante la base caída, telemetría opcional); **propuesto** para el proveedor externo (circuit breaker), la caché como respaldo y el límite de tráfico en el gateway
-- **Fecha:** 2026-10-23
-- **Entrega:** 2 (23/10)
+- **Estado:** aceptado e implementado para `api-gateway`, `proveedores-service` (timeouts, salida del reparto por salud, reintento acotado, error inmediato ante la base caída, telemetría opcional, y Redis, Meilisearch y RabbitMQ opcionales) e `import-service` (circuit breaker, reintentos y última importación válida frente a FAV; outbox frente a RabbitMQ); **propuesto** para los pedidos a FAV, la caché como respaldo diseñado y el límite de tráfico en el gateway
+- **Fecha:** 2026-10-23 · actualizado 2026-11-06
+- **Entrega:** 2 (23/10), actualizado en la 3 (06/11)
 - **Decisión de la consigna:** D10. Comportamiento ante fallas y mecanismos seleccionados para limitar su propagación o degradar el sistema de manera controlada.
 
 ## Contexto
@@ -31,8 +31,14 @@ El riesgo particular de nuestro sistema es que la capacidad la consume **otro gr
 | `proveedores-service` | PostgreSQL | `503 NO_DISPONIBLE` inmediato y `/readyz` en 503; `/healthz` (lo que sondea el gateway) sigue en 200, así que la réplica sigue en el reparto y contesta el error del contrato | `503` a los **2 s** (timeout de consulta y de conexión) | implementado |
 | `proveedores-service` | PostgreSQL al arrancar | reintenta las migraciones **15 veces cada 2 s** antes de rendirse | timeout de 10 s por intento | implementado |
 | todos | Jaeger | **ningún efecto**: el exportador falla en segundo plano y las requests siguen; Jaeger no es dependencia en el compose | ningún efecto | implementado |
-| `proveedores-service` | Redis (caché) | se saltea la caché y se lee de PostgreSQL | timeout corto (50 ms) y la misma salida | propuesto ([ADR-007](ADR-007-cache.md)) |
-| `import-service` | catálogo de FAV (tienda de ropa) | circuit breaker; el ranking sigue con la última importación válida, hasta 24 h | timeout de 3 s y hasta 3 reintentos | propuesto ([ADR-009](ADR-009-consumo-proveedor.md)) |
+| `proveedores-service` | Redis (caché) | se saltea la caché y se lee de PostgreSQL; `/readyz` no se entera | timeout de 50 ms, sin reintentos, y la misma salida | implementado ([ADR-007](ADR-007-cache.md)) |
+| `proveedores-service` | Meilisearch (búsqueda) | la búsqueda da `503 NO_DISPONIBLE` y la capacidad sigue; los SKU quedan en `skus_por_reindexar` y se indexan al volver | la búsqueda corta a los 2 s con el mismo `503` | implementado ([ADR-006](ADR-006-busqueda.md)) |
+| `proveedores-service` | RabbitMQ | la capacidad y la búsqueda siguen; el consumidor reintenta conectarse con espera creciente, hasta 30 s, y los eventos esperan en el outbox de `import-service` | latido de 10 s; una conexión muerta se reabre sola | implementado ([ADR-005](ADR-005-comunicacion.md)) |
+| `proveedores-service` | PostgreSQL al aplicar un evento | no se aplica nada; 3 entregas con 5 y 10 s de espera, y a la DLQ | timeout de 30 s por evento y la misma salida | implementado ([ADR-005](ADR-005-comunicacion.md)) |
+| `proveedores-service` | la réplica que consume | la cola le pasa el consumo a la otra (`x-single-active-consumer`) | sin relevo: la cola espera, para no perder el orden | implementado ([ADR-005](ADR-005-comunicacion.md)) |
+| `import-service` | catálogo de FAV (tienda de ropa) | hasta 3 reintentos y, tras 3 sincronizaciones fallidas, **circuit breaker** abierto durante las 3 vueltas siguientes (17 min 30 s con el intervalo de 5 min); el ranking sigue con la última importación válida, hasta 24 h, y después se retiran sus ofertas | timeout de 3 s por intento; cuenta como falla | implementado ([ADR-009](ADR-009-consumo-proveedor.md)) |
+| `import-service` | RabbitMQ | los eventos esperan en el **outbox** (MongoDB) y se publican en orden cada 15 s cuando vuelve; `/readyz` sigue en 200 | confirmación con timeout de 5 s; si no llega, el evento queda pendiente | implementado ([ADR-005](ADR-005-comunicacion.md)) |
+| `import-service` | MongoDB | `/readyz` en 503 y la sincronización no avanza (no tiene dónde guardar); la capacidad publicada no se entera | timeout de 3 s por operación | implementado |
 | `stock-service` | pedidos de FAV | la orden de reposición queda en `BORRADOR`; los reintentos técnicos repiten su `Idempotency-Key` | timeout de 3 s; un aviso perdido lo recupera la consulta cada 15 min | propuesto ([ADR-009](ADR-009-consumo-proveedor.md)) |
 
 Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.md), y la salida del reparto por salud, en [ADR-012](ADR-012-balanceo-de-carga.md).
@@ -47,7 +53,7 @@ Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.
 ### Mecanismos propuestos
 
 - **Circuit breaker** sobre las llamadas a FAV, la tienda de ropa: abre con 5 fallas seguidas, se queda abierto 30 s y deja pasar una prueba (medio abierto).
-- **Respaldo desde la caché:** si PostgreSQL no responde pero hay ofertas en Redis, servirlas marcadas como posiblemente desactualizadas. Se decide en la Entrega 3, junto con la caché.
+- **Respaldo desde la caché:** si PostgreSQL no responde, servir ofertas **vencidas** de Redis marcadas como posiblemente desactualizadas. No se construyó. Lo que hay hoy es un efecto de la caché: un SKU todavía vigente responde 200 con la base caída.
 - **Límite de tráfico en el gateway**, por API key (token bucket) y de concurrencia total, para rechazar rápido lo que exceda en lugar de colapsar ([ADR-013](ADR-013-capacidad-y-costos.md)). La presentación pide "control de tráfico" en el punto de entrada.
 
 ## Por qué
@@ -59,7 +65,9 @@ Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.
 
 ## Consecuencias aceptadas
 
-- **PostgreSQL es un punto único de falla.** Si cae, la capacidad entera responde `503`; ningún mecanismo de hoy lo evita. La mitigación propuesta es la caché como respaldo.
+- **PostgreSQL es un punto único de falla.** Si cae, la capacidad responde `503` para todo SKU que no esté vigente en la caché, y a lo sumo a los 60 s, para todos; ningún mecanismo de hoy lo evita. La mitigación propuesta es la caché como respaldo.
+- **Un evento que agota sus entregas queda en la DLQ** y los siguientes se aplican igual ([ADR-005](ADR-005-comunicacion.md)).
+- **Con Redis caído, cada request paga unos 50 ms** ([ADR-007](ADR-007-cache.md)).
 - **Con la base lenta, cada request espera 2 s** antes del `503`, y mientras tanto ocupa una conexión del pool.
 - **Una réplica recién caída le cuesta un reintento** (latencia extra) a la primera request que le toca; si no llega ninguna request, el sondeo la detecta en hasta 5 s.
 - **Un error de transporte aislado también saca a una réplica sana** del reparto hasta el próximo sondeo ([ADR-005](ADR-005-comunicacion.md)).
@@ -69,12 +77,33 @@ Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.
 
 ## Con qué lo medimos
 
+Simulacro del 06/11 con `tests/carga/fallas.sh`, de a una dependencia con el sistema levantado; salida en [`tests/carga/resultados/2026-11-06-fallas/`](../../tests/carga/resultados/2026-11-06-fallas/):
+
+| Qué se apagó | Capacidad | Búsqueda | Eventos |
+|---|---|---|---|
+| Redis | 200 en unos 56 ms | — | se aplica y se ve en el ranking en 9 s, con sincronización cada 10 s |
+| Meilisearch | 200 en 17 ms | `503` | se aplica; 1 SKU pendiente, indexado 3 s después de volver y 0 pendientes |
+| RabbitMQ | 200 en 5 ms | 200 | esperó en el outbox y llegó a los 14 s |
+| Las tres, y arranca una réplica | 200 servido solo por esa réplica, `healthy` | — | — |
+| La réplica que consume | sigue por la otra | — | la otra aplica el siguiente evento |
+| PostgreSQL | 200 con un SKU cacheado; `503` en 2,01 s sin cachear | — | a la DLQ en 32 s |
+| Nada (mensaje basura) | — | — | a la DLQ sin reintentos |
+
+Los 56 ms de Redis son de una segunda pasada, después de sacar la escritura que seguía a una lectura fallida; la primera dio 108 ms. No se probó Redis **colgado** en el sistema levantado, solo en un test, contra un servidor que acepta y no contesta.
+
 Mediciones del 22/10 ([ADR-012](ADR-012-balanceo-de-carga.md), [ADR-002](ADR-002-arquitectura-interna.md)) con `docker compose up`:
 
 - **Una réplica detenida:** 4 de 4 requests en `200`; detección sin tráfico en **4,8 s**; vuelta al reparto en **2,7 s**.
 - **Las dos réplicas detenidas:** `502 NO_DISPONIBLE` y `/readyz` del gateway en 503.
 - **Base detenida:** `503` en **2 ms**; base pausada: `503` en **2,0 s**.
 - **Bajo sobrecarga:** códigos de respuesta y latencias máximas por tasa en [ADR-013](ADR-013-capacidad-y-costos.md).
+
+Mediciones del 03/11 sobre `import-service` (tests unitarios y de integración, sin el compose completo):
+
+- **Circuit breaker:** abre a las **3** fallas seguidas y no llama a FAV mientras está abierto; pasadas 3 vueltas deja **una** llamada de prueba y vuelve a cerrar si sale bien o a abrir si falla. Un `401` no lo abre (`internal/resiliencia`, 100 % de cobertura). La espera se calcula sobre el intervalo de sincronización (`3,5 × INTERVALO_SINCRONIZACION`): con una espera fija más corta que el intervalo, el breaker ya estaría semiabierto en la vuelta siguiente y nunca evitaría una llamada (test en `cmd/server`, también con vueltas que tardan en terminar).
+- **FAV caído:** el ranking conserva las 2 ofertas vigentes de la prueba y `/estado` informa el breaker abierto (`internal/sincronizacion`).
+- **RabbitMQ caído:** los eventos quedan en el outbox y salen en orden al volver; publicar sin broker falla en menos de 6 s, sin colgar la sincronización.
+- **Falta medirlo con el sistema levantado** (Game Day): cortar el mock de FAV con `POST /_mock/modo {"modo":"caido"}` y detener RabbitMQ con `docker compose stop rabbitmq`.
 
 ## Qué nos haría cambiar de idea
 

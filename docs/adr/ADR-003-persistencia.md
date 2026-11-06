@@ -1,6 +1,6 @@
 # ADR-003 — Persistencia (D3)
 
-- **Estado:** aceptado e implementado para `proveedores-service` (PostgreSQL); **propuesto** para `stock-service` (PostgreSQL) e `import-service` (MongoDB), que todavía no existen
+- **Estado:** aceptado e implementado para `proveedores-service` (PostgreSQL) e `import-service` (MongoDB); **propuesto** para `stock-service` (PostgreSQL, base propia ya creada en el compose)
 - **Fecha:** 2026-10-23
 - **Entrega:** 1 (no se presentó en su fecha) y validación en la 2 (23/10)
 - **Decisión de la consigna:** D3. Tipo de almacenamiento elegido para cada servicio, patrones de acceso que debe soportar y limitaciones aceptadas.
@@ -31,10 +31,18 @@ Para los servicios propuestos (resumen; se confirma al construirlos):
 | Servicio | Almacenamiento | Patrón de acceso | Estado |
 |---|---|---|---|
 | `proveedores-service` | **PostgreSQL** | Lectura por SKU en **una sola consulta**: `LEFT JOIN` desde `productos` hacia `ofertas` y `proveedores`, que distingue "el SKU no existe" (0 filas) de "existe pero sin ofertas" (1 fila con NULL). Sin escrituras en el flujo actual. | implementado |
-| `stock-service` | **PostgreSQL** | Escrituras transaccionales con bloqueo de fila. | propuesto |
-| `import-service` | **MongoDB** | Escritura de documentos de forma variable; lectura por proveedor y fecha. | propuesto |
+| `stock-service` | **PostgreSQL**, base `stock` con usuario propio en el mismo contenedor | Escrituras transaccionales con bloqueo de fila. | propuesto (la base ya existe: `infra/postgres/init/`) |
+| `import-service` | **MongoDB 8** | Un documento por intento de importación con la **respuesta cruda del proveedor tal cual llegó**, el catálogo traducido vigente y el evento a publicar. Lecturas: la última vigente por secuencia, la última buena por fecha y los eventos sin publicar. | implementado (03/11) |
 
-Esto cumple "una base relacional y otra no relacional" **solo cuando exista `import-service`**. Hasta entonces el sistema usa un único tipo de almacenamiento.
+Con `import-service` el sistema cumple **"una base relacional y otra no relacional"** en el flujo: el catálogo de FAV pasa por MongoDB antes de llegar como ofertas a PostgreSQL.
+
+**MongoDB en `import-service`** (`internal/adapters/mongo`):
+
+- Colección `importaciones`, un documento por intento (bueno, sin cambios, con error o vencido): así se mide la tasa de éxito de las sincronizaciones.
+- `crudo` guarda la respuesta del proveedor como documento, **con los campos que traiga aunque no los usemos**. Si FAV agrega uno, queda registrado sin migrar nada; un segundo proveedor con otro formato entra en la misma colección. Ese es el patrón de acceso que justifica una base documental.
+- **Outbox en el mismo documento:** el evento `ListaPreciosActualizada` se guarda dentro de la importación. Una escritura de un documento es atómica en MongoDB, así que no hace falta una transacción multi-documento (que pediría un *replica set*).
+- Índices: secuencia única por proveedor (frena dos importaciones con la misma secuencia), por estado y fecha, y uno parcial con los eventos sin publicar.
+- Timeout de 3 s por operación. Si MongoDB no responde, `/readyz` de `import-service` pasa a `503`; la capacidad publicada no se entera, porque no depende de él.
 
 **Esquema implementado** (`services/proveedores-service/migrations/001_init.sql`):
 
@@ -59,12 +67,12 @@ Esto cumple "una base relacional y otra no relacional" **solo cuando exista `imp
 
 ## Consecuencias aceptadas
 
-- **Un solo tipo de almacenamiento hoy.** El requisito de dos tipos depende de construir `import-service` o de otro servicio con MongoDB.
+- **Dos motores que operar.** MongoDB suma un contenedor, un volumen y sus credenciales; corre en un solo nodo, sin réplicas.
 - **Postgres es un punto único de falla.** Si cae, la capacidad responde `503`; el balanceo entre réplicas no lo arregla.
 - **El motor de ranking trae todas las ofertas del SKU y filtra en memoria** (ver [ADR-002](ADR-002-arquitectura-interna.md)). Es razonable con decenas de ofertas por producto; con miles habría que mover el filtro a SQL.
 - **Importes como `NUMERIC(14,2)` en la base, pero `float64` en el dominio.** El redondeo final a 2 decimales absorbe el ruido, pero no es aritmética decimal exacta.
-- **No hay escrituras en el flujo actual.** Los precios y el stock solo cambian por el seed; cuando `import-service` los actualice, habrá que revisar la consistencia entre lo que se importa y lo que se consulta.
-- **El esquema de `productos` es provisorio** (ver la tensión descrita en [ADR-001](ADR-001-limites-de-los-servicios.md)).
+- **Las ofertas de FAV llegan con retraso.** Entre que cambian en FAV y que se ven en el ranking pasan hasta 5 minutos (la sincronización) más lo que tarde el consumidor del evento; hasta 24 h si FAV está caído ([ADR-009](ADR-009-consumo-proveedor.md)).
+- **`productos` queda en `proveedores-service`** ([ADR-014](ADR-014-tres-servicios-sin-catalogo.md)); los de proveedores externos entran por el evento.
 
 ## Con qué lo medimos
 
@@ -75,6 +83,12 @@ Mediciones del 23/10 sobre el código de `main` y datos de las entregas anterior
 - **Comportamiento con la base caída:** `503` en 2 ms; con la base pausada, `503` en 2,0 s (el timeout configurado).
 - **Cobertura del adaptador de PostgreSQL:** 83 % con tests de integración contra un PostgreSQL 16 real levantado con testcontainers (plan de la Entrega 2).
 - **Un solo paquete accede a la base:** `internal/adapters/postgres`.
+
+Mediciones del 03/11 sobre `import-service`:
+
+- **Un solo paquete accede a MongoDB:** `internal/adapters/mongo`.
+- **Tests de integración contra MongoDB 8 real** (testcontainers, `go test -tags=integration ./internal/adapters/mongo/`): guardar y leer la vigente con su evento, outbox en orden, índice de secuencia única y ping. **Escritos y compilados; no se pudieron correr en el entorno donde se escribieron**, que no tiene Docker: hay que correrlos en una máquina del grupo antes del 06/11.
+- **La respuesta cruda conserva campos desconocidos:** el test guarda un catálogo con un campo que no está en el contrato de FAV (`campoNuevoDeFAV`).
 
 ## Qué nos haría cambiar de idea
 

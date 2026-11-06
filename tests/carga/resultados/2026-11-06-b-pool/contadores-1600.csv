@@ -1,0 +1,3 @@
+momento,hora,xact_commit,lecturas_productos,redis_hits,redis_misses
+antes,14:57:30,180199,178620,0,0
+despues,14:58:22,236452,234584,0,0
