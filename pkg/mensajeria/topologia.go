@@ -22,19 +22,29 @@ const (
 	// ColaListaPreciosFallidos guarda lo que no se pudo procesar.
 	ColaListaPreciosFallidos = "proveedores-service.lista-precios.dlq"
 
-	// IntentosMaximos es cuántas veces se entrega un mensaje antes de que la
-	// cola lo mande a la de fallidos (ADR-005: hasta 3 intentos).
+	// IntentosMaximos es cuántas veces se intenta un mensaje (ADR-005: hasta 3
+	// intentos). Como x-delivery-limit cuenta devoluciones, la cola sola recién lo
+	// descartaría en la cuarta entrega: la tercera fallida la manda a la de
+	// fallidos el consumidor.
 	IntentosMaximos = 3
 )
 
 // argsColaListaPrecios son los argumentos de la cola principal. Es una cola
-// quorum porque así RabbitMQ cuenta las entregas (x-delivery-limit) y, pasado
-// el límite, la manda sola al exchange de fallidos: el consumidor no tiene que
-// llevar la cuenta de los reintentos.
+// quorum porque así RabbitMQ cuenta las entregas: las informa en x-delivery-count
+// y, pasado x-delivery-limit, manda el mensaje al exchange de fallidos. Ese límite
+// es la red de seguridad; el consumidor lee el contador y rechaza antes, en la
+// tercera entrega fallida.
+//
+// x-single-active-consumer hace que, con dos réplicas suscriptas, la cola le
+// entregue a una sola y pase a la otra si esa se cae. Sin esto, dos réplicas
+// aplicarían eventos en paralelo y un evento nuevo podría ganarle a uno anterior:
+// como los eventos son deltas y lo viejo se descarta por secuencia, se perderían
+// datos.
 func argsColaListaPrecios() amqp.Table {
 	return amqp.Table{
 		"x-queue-type":              "quorum",
 		"x-delivery-limit":          int32(IntentosMaximos),
+		"x-single-active-consumer":  true,
 		"x-dead-letter-exchange":    ExchangeFallidos,
 		"x-dead-letter-routing-key": ColaListaPreciosFallidos,
 	}
