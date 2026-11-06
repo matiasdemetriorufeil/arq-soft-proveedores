@@ -1,7 +1,7 @@
 # ADR-003 — Persistencia (D3)
 
-- **Estado:** aceptado e implementado para `proveedores-service` (PostgreSQL) e `import-service` (MongoDB); **propuesto** para `stock-service` (PostgreSQL, base propia ya creada en el compose)
-- **Fecha:** 2026-10-23
+- **Estado:** aceptado e implementado para `proveedores-service` (PostgreSQL), `import-service` (MongoDB) y `stock-service` (PostgreSQL, base `stock` propia)
+- **Fecha:** 2026-10-23; actualizado el 2026-11-06 con `stock-service`
 - **Entrega:** 1 (no se presentó en su fecha) y validación en la 2 (23/10)
 - **Decisión de la consigna:** D3. Tipo de almacenamiento elegido para cada servicio, patrones de acceso que debe soportar y limitaciones aceptadas.
 
@@ -31,7 +31,7 @@ Para los servicios propuestos (resumen; se confirma al construirlos):
 | Servicio | Almacenamiento | Patrón de acceso | Estado |
 |---|---|---|---|
 | `proveedores-service` | **PostgreSQL** | Lectura por SKU en **una sola consulta**: `LEFT JOIN` desde `productos` hacia `ofertas` y `proveedores`, que distingue "el SKU no existe" (0 filas) de "existe pero sin ofertas" (1 fila con NULL). Sin escrituras en el flujo actual. | implementado |
-| `stock-service` | **PostgreSQL**, base `stock` con usuario propio en el mismo contenedor | Escrituras transaccionales con bloqueo de fila. | propuesto (la base ya existe: `infra/postgres/init/`) |
+| `stock-service` | **PostgreSQL**, base `stock` con usuario propio en el mismo contenedor | Escrituras transaccionales con bloqueo de fila: `SELECT … FOR UPDATE` sobre la fila del SKU, más el `INSERT` de la reserva, en una sola transacción ([ADR-004](ADR-004-consistencia-y-concurrencia.md)). Lectura por clave primaria (`sku`) y por `clave_idempotencia`, las dos indexadas. | implementado (06/11) |
 | `import-service` | **MongoDB 8** | Un documento por intento de importación con la **respuesta cruda del proveedor tal cual llegó**, el catálogo traducido vigente y el evento a publicar. Lecturas: la última vigente por secuencia, la última buena por fecha y los eventos sin publicar. | implementado (03/11) |
 
 Con `import-service` el sistema cumple **"una base relacional y otra no relacional"** en el flujo: el catálogo de FAV pasa por MongoDB antes de llegar como ofertas a PostgreSQL.
@@ -50,6 +50,13 @@ Con `import-service` el sistema cumple **"una base relacional y otra no relacion
 - `productos (sku PK, nombre, categoria, unidad)`
 - `ofertas (proveedor_id, producto_sku, precio_unitario, descuento_pct, cantidad_minima_descuento, flete, stock_disponible, actualizado_en)`, clave primaria `(proveedor_id, producto_sku)`, con `CHECK` que impiden precios, fletes o stock negativos y descuentos fuera de 0–100.
 - Índice `idx_ofertas_producto_sku` para la consulta principal, que filtra por SKU.
+
+**Esquema implementado de `stock-service`** (`services/stock-service/migrations/001_init.sql`):
+
+- `stock_productos (sku PK, disponible, reservado, minimo, actualizado_en)`, con `CHECK (disponible >= 0)` y `CHECK (reservado >= 0)`. Ese primer `CHECK` es la invariante de RN-13 escrita en la base: aunque falle la lógica de la aplicación, la sobreventa no entra.
+- `reservas (id UUID PK, sku FK → stock_productos, cantidad CHECK > 0, clave_idempotencia UNIQUE, estado, creado_en)`. El `UNIQUE` es lo que hace idempotente a la reserva ante dos reintentos simultáneos.
+- Índice `idx_reservas_sku` para auditar el movimiento de una fila de stock.
+- **Base separada, usuario separado.** `stock-service` se conecta con `STOCK_DB_USER`, que es OWNER de `stock` y **no puede conectarse a la base `proveedores`** (`infra/postgres/init/10-bases-por-servicio.sh` le quita el `CONNECT` a `PUBLIC`). Un servicio no puede leer los datos del otro ni por accidente: la integración es por API o por evento.
 
 **Decisiones de operación:**
 
@@ -83,6 +90,13 @@ Mediciones del 23/10 sobre el código de `main` y datos de las entregas anterior
 - **Comportamiento con la base caída:** `503` en 2 ms; con la base pausada, `503` en 2,0 s (el timeout configurado).
 - **Cobertura del adaptador de PostgreSQL:** 83 % con tests de integración contra un PostgreSQL 16 real levantado con testcontainers (plan de la Entrega 2).
 - **Un solo paquete accede a la base:** `internal/adapters/postgres`.
+
+Mediciones del 06/11 sobre `stock-service`:
+
+- **Un solo paquete accede a la base:** `internal/repository`; es el único que importa `jackc/pgx`.
+- **Datos de la carga inicial:** **30** SKUs en `stock_productos`, los mismos del seed de `proveedores-service` (contados en `002_seed.sql`).
+- **Tests de integración contra PostgreSQL 16 real** (testcontainers, `go test -tags=integration ./internal/repository/`): **8 en verde en 3,7 s**, con 62,2 % de cobertura del paquete. Cubren migraciones y seed (idempotentes: se reaplican enteros), lectura por SKU, `Ping`, el camino completo de la reserva, el `UNIQUE` de la clave de idempotencia, el `CHECK (disponible >= 0)` y los dos tests de concurrencia ([ADR-004](ADR-004-consistencia-y-concurrencia.md)). También aceptan `STOCK_TEST_DATABASE_URL` para correr contra un PostgreSQL ya levantado, sin Docker.
+- **Comportamiento con la base caída:** detenida, la reserva devuelve `503 NO_DISPONIBLE` en **11,9 ms** (la conexión se rechaza en el acto); pausada, en **2,05 s**, que es el timeout configurado. `/readyz` acompaña en los dos casos y `/healthz` sigue en `200`. Medido con el binario corriendo en el host contra un `postgres:16-alpine` en Docker ([ADR-004](ADR-004-consistencia-y-concurrencia.md)).
 
 Mediciones del 03/11 sobre `import-service`:
 

@@ -16,7 +16,7 @@ administra, cómo se comunican y cómo se despliegan.
 |---|---|
 | **Dominio** | Comparar proveedores por costo final (precio, descuento por volumen, flete y stock) y recomendar a quién comprar. |
 | **Capacidad que publicamos** | `GET /api/v1/proveedores/recomendados`, consumida por el grupo de paneles solares. Contrato en [`docs/contracts/`](contracts/README.md). |
-| **Capacidad que consumimos** | Catálogo y pedidos de FAV (grupo de ropa), que entra como un proveedor más. *El catálogo ya se importa (contra un mock que cumple su contrato); los pedidos son propuestos.* |
+| **Capacidad que consumimos** | Catálogo y pedidos de FAV (grupo de ropa), que entra como un proveedor más. *El catálogo ya se importa y los pedidos de reposición ya salen, los dos contra un mock que cumple su contrato.* |
 | **Lenguaje** | Go, solo biblioteca estándar más pocas dependencias (`pgx`, OpenTelemetry, el driver de MongoDB y el cliente de RabbitMQ). |
 | **Despliegue** | Docker Compose, un solo comando. Hoy corre solo en local. |
 
@@ -40,7 +40,7 @@ flowchart LR
     paneles -- "GET /api/v1/proveedores/recomendados<br/>HTTPS/JSON + X-API-Key" --> sistema
     usuario -. "navegador (propuesto)" .-> sistema
     sistema -- "GET /v1/productos cada 5 min<br/>(contra el mock hasta tener su URL)" --> ropa
-    sistema -. "pedidos y webhook (propuesto)" .-> ropa
+    sistema -. "pedidos y webhook" .-> ropa
 
     classDef propuesto fill:#eeeeee,stroke:#999999,stroke-dasharray: 4 3,color:#555555
     class usuario propuesto
@@ -82,7 +82,7 @@ flowchart TB
         mongo[("<b>MongoDB 8</b><br/>importaciones + outbox<br/><i>implementado</i>")]
         rabbit[["<b>RabbitMQ 4.1</b><br/>proveedores.eventos + DLQ<br/><i>implementado</i>"]]
 
-        stock["<b>stock-service</b><br/>reservas y reposición<br/><i>propuesto</i>"]
+        stock["<b>stock-service</b><br/>reservas, reposición<br/>y pedidos a FAV"]
         redis[("<b>Redis</b><br/>caché de ofertas<br/><i>en el compose, sin uso</i>")]
         meili[("<b>Meilisearch</b><br/>índice de productos<br/><i>en el compose, sin uso</i>")]
     end
@@ -131,9 +131,9 @@ Los criterios de corte están en [ADR-001](adr/ADR-001-limites-de-los-servicios.
 |---|---|---|---|---|
 | `api-gateway` | implementado | Entrada única: valida `X-API-Key`, genera o respeta `X-Request-ID`, abre el span padre de la traza, reparte la capacidad entre réplicas y las saca del reparto si caen. **Sin datos ni lógica de dominio.** | — | Proxy inverso con balanceador propio |
 | `proveedores-service` | implementado | Calcula el costo total de cada oferta, descarta las que no tienen stock suficiente y devuelve las más baratas. Publica la capacidad compartida. | PostgreSQL | Hexagonal ([ADR-002](adr/ADR-002-arquitectura-interna.md)) |
-| `stock-service` | propuesto | Stock propio, reserva sin sobreventa, punto de reorden y órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`). | PostgreSQL (base `stock`, ya creada) | En capas (propuesto en ADR-002) |
+| `stock-service` | implementado | Stock propio, reserva sin sobreventa, punto de reorden, órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`), pedidos a FAV y su webhook. Todavía no está ruteado en el gateway. | PostgreSQL (base `stock`, con su propio usuario) | En capas: `handler → service → repository` ([ADR-002](adr/ADR-002-arquitectura-interna.md)) |
 | `import-service` | implementado | Baja el catálogo de FAV cada 5 min, lo traduce a ofertas (capa anticorrupción), lo compara con lo último avisado y publica `ListaPreciosActualizada`. Sin tráfico de afuera: solo `/healthz`, `/readyz`, `/estado` y `POST /sincronizar` en la red interna. | MongoDB | Puertos y adaptadores livianos: `dominio` y `sincronizacion` no conocen MongoDB, RabbitMQ ni HTTP |
-| `fav-mock` | implementado (solo local) | Hace de FAV mientras no tengamos su URL: cumple su contrato v1.1.0 y simula fallas para el Game Day. No es parte del sistema. | — | — |
+| `fav-mock` | implementado (solo local) | Hace de FAV mientras no tengamos su URL: cumple su contrato v1.1.0 (catálogo, pedidos con estado y webhook firmado) y simula fallas para el Game Day. No es parte del sistema. | — | — |
 
 El código de cada servicio está en `services/<nombre>/`. Hay dos paquetes
 compartidos: `pkg/observabilidad` (logger JSON con `trace_id` e inicialización
@@ -150,13 +150,13 @@ Cada dato tiene **un único dueño**. Ningún servicio lee la base de otro.
 | Proveedores (`proveedores`) | `proveedores-service` | PostgreSQL | Nadie directamente; se exponen por la API |
 | Productos (`productos`) | `proveedores-service` | PostgreSQL | Los de proveedores externos llegan por el evento `ListaPreciosActualizada` ([ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md)) |
 | Ofertas (`ofertas`: precio, descuento, flete, stock del proveedor) | `proveedores-service` | PostgreSQL | Nadie directamente |
-| Existencias propias y órdenes de reposición | `stock-service` (propuesto) | PostgreSQL | — |
+| Existencias propias, reservas, órdenes de reposición y avisos de FAV recibidos | `stock-service` | PostgreSQL (base `stock`) | — |
 | Importaciones: respuesta cruda del proveedor, catálogo traducido vigente y eventos a publicar | `import-service` | MongoDB | Nadie directamente; los cambios salen por el evento |
 
 Esquema implementado y motivos de la elección en
 [ADR-003](adr/ADR-003-persistencia.md). **Distinción importante:** `stock_disponible`
 en `ofertas` es el stock **del proveedor**, que el consumidor usa para saber si
-puede comprarle; no es el stock propio, que será de `stock-service`.
+puede comprarle; no es el stock propio, que es de `stock-service`.
 
 ## 6. Comunicaciones
 
@@ -166,12 +166,12 @@ puede comprarle; no es el stock propio, que será de `stock-service`.
 | `api-gateway` → `proveedores-service` | síncrona | HTTP/JSON | implementado | Timeout de 3 s (`TIMEOUT_UPSTREAM`), un reintento en otra réplica si la conexión falla, solo para `GET` |
 | `proveedores-service` → PostgreSQL | síncrona | SQL (pgx) | implementado | Timeout de 2 s por consulta |
 | Servicios → Jaeger | asíncrona (telemetría) | OTLP/HTTP | implementado | Si Jaeger no está, el sistema responde igual |
-| `stock-service` → `proveedores-service` | síncrona | HTTP | propuesto | Se define en D5 |
+| `stock-service` → `proveedores-service` | síncrona | HTTP, directo a una réplica | implementado | Timeout de 1 s y 2 reintentos ([ADR-005](adr/ADR-005-comunicacion.md)) |
 | `import-service` → RabbitMQ → `proveedores-service` | asíncrona (evento `ListaPreciosActualizada`) | AMQP 0-9-1 | publicación implementada; consumo propuesto | Outbox en MongoDB, *publisher confirms*, DLQ tras 3 entregas ([`eventos.md`](contracts/eventos.md)) |
 | `import-service` → MongoDB | síncrona | MongoDB wire | implementado | Timeout de 3 s por operación |
 | `import-service` → FAV (grupo de ropa), catálogo | síncrona | HTTP, cada 5 min | implementado (contra `fav-mock`) | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, 3 reintentos, circuit breaker, última importación válida hasta 24 h |
-| `stock-service` → FAV, pedidos | síncrona | HTTP con `Idempotency-Key` | propuesto | [ADR-009](adr/ADR-009-consumo-proveedor.md) |
-| FAV → `stock-service` (directo, sin gateway) | asíncrona (webhook) | HTTP firmado con HMAC | propuesto | Aviso de cambio de estado del pedido ([ADR-009](adr/ADR-009-consumo-proveedor.md)) |
+| `stock-service` → FAV, pedidos | síncrona | HTTP con `Idempotency-Key` | implementado (contra `fav-mock`) | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, 3 reintentos con la misma clave, consulta de respaldo cada 15 min |
+| FAV → `stock-service` (directo, sin gateway) | asíncrona (webhook) | HTTP firmado con HMAC | implementado (contra `fav-mock`) | Aviso de cambio de estado del pedido: firma, deduplicación por `eventoId` y confirmación con `GET` ([ADR-009](adr/ADR-009-consumo-proveedor.md)) |
 
 ## 7. Flujo principal
 
@@ -263,13 +263,14 @@ Detalle y límites en [ADR-011](adr/ADR-011-observabilidad.md).
 | # | Decisión | Documento | Estado |
 |---|---|---|---|
 | D1 | Límites de los servicios | [ADR-001](adr/ADR-001-limites-de-los-servicios.md) y [ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md) | aceptado (gateway, proveedores e import); stock propuesto; sin `catalog-service` (ADR-014, propuesto) |
-| D2 | Arquitectura interna | [ADR-002](adr/ADR-002-arquitectura-interna.md) | aceptado |
-| D3 | Persistencia | [ADR-003](adr/ADR-003-persistencia.md) | aceptado (PostgreSQL y MongoDB); stock propuesto |
+| D2 | Arquitectura interna | [ADR-002](adr/ADR-002-arquitectura-interna.md) | aceptado e implementado: hexagonal en proveedores y en capas en stock |
+| D3 | Persistencia | [ADR-003](adr/ADR-003-persistencia.md) | aceptado (PostgreSQL en proveedores y stock, MongoDB en import) |
+| D4 | Consistencia y concurrencia | [ADR-004](adr/ADR-004-consistencia-y-concurrencia.md) | aceptado e implementado: reserva con `FOR UPDATE` e idempotencia, con el test de 20 reservas simultáneas en verde contra PostgreSQL real |
 | D5 | Comunicación entre servicios | [ADR-005](adr/ADR-005-comunicacion.md) | aceptado (síncrono y publicación del evento); consumo propuesto |
 | D6 | Búsqueda | [ADR-006](adr/ADR-006-busqueda.md) | propuesto |
 | D7 | Caché | [ADR-007](adr/ADR-007-cache.md) | propuesto |
 | D8 | Contrato propio | [ADR-008](adr/ADR-008-contrato-propio.md) | aceptado |
-| D9 | Consumo del proveedor | [ADR-009](adr/ADR-009-consumo-proveedor.md) | aceptado (catálogo, con test de contrato); pedidos propuestos |
+| D9 | Consumo del proveedor | [ADR-009](adr/ADR-009-consumo-proveedor.md) | aceptado: catálogo y pedidos con webhook, con test de contrato |
 | D10 | Resiliencia | [ADR-010](adr/ADR-010-resiliencia.md) | aceptado (gateway, proveedores e import, con circuit breaker hacia FAV); resto propuesto |
 | D11 | Observabilidad | [ADR-011](adr/ADR-011-observabilidad.md) | aceptado para logs y trazas; resto propuesto |
 | D12 | Balanceo de carga | [ADR-012](adr/ADR-012-balanceo-de-carga.md) | aceptado |
@@ -277,8 +278,7 @@ Detalle y límites en [ADR-011](adr/ADR-011-observabilidad.md).
 
 **Bonus:** el grupo no toma ninguno (anunciado en la Entrega 2, consigna sección 7).
 
-La decisión D4 (consistencia y concurrencia) todavía no tiene documento; la
-plantilla para los ADR nuevos está en [`adr/TEMPLATE.md`](adr/TEMPLATE.md).
+La plantilla para los ADR nuevos está en [`adr/TEMPLATE.md`](adr/TEMPLATE.md).
 
 ## 11. Limitaciones conocidas y deuda técnica
 
@@ -287,9 +287,10 @@ grupal pide actualizar.
 
 **Alcance que falta (consigna)**
 
-- **Dos servicios de dominio de tres.** `proveedores-service` e `import-service`
-  están implementados; `stock-service` es solo diseño. `catalog-service` sale del
-  alcance ([ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md), a validar).
+- **Tres servicios de dominio, sin `catalog-service`.** `proveedores-service`,
+  `import-service` y `stock-service` están implementados; `catalog-service` sale
+  del alcance ([ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md), a validar).
+  `stock-service` todavía no está ruteado en el gateway.
 - **Sin frontend.** No hay interfaz web.
 - **El evento se publica pero nadie lo consume.** `import-service` publica
   `ListaPreciosActualizada` con outbox y confirmaciones, y la DLQ está armada;
@@ -298,9 +299,11 @@ grupal pide actualizar.
 - **Redis y Meilisearch están en el compose pero sin uso.** Hoy cada consulta va a
   PostgreSQL.
 - **La integración con FAV es contra nuestro mock.** El catálogo se consume con
-  test de contrato contra su OpenAPI v1.1.0, pero FAV todavía no publicó su URL;
-  los pedidos y el webhook ([ADR-009](adr/ADR-009-consumo-proveedor.md)) dependen
-  de `stock-service`.
+  test de contrato contra su OpenAPI v1.1.0, igual que los pedidos y el webhook
+  ([ADR-009](adr/ADR-009-consumo-proveedor.md)), pero FAV todavía no publicó su
+  URL. Con el FAV real, el webhook necesita una URL pública que llegue a
+  `stock-service` sin pasar por el gateway. Los pedidos no tienen circuit breaker
+  (el catálogo sí).
 - **Los tests de integración de MongoDB no se corrieron todavía.** Están escritos
   y compilan; los de RabbitMQ sí se corrieron contra un broker real.
 - **Sin despliegue en la nube.** La capacidad corre solo en local; falta la URL

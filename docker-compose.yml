@@ -167,6 +167,9 @@ services:
     environment:
       PORT: "8090"
       FAV_MOCK_CLAVE: ${FAV_API_KEY:?falta FAV_API_KEY en .env}
+      # Firma los avisos de pedidos con el mismo secreto que verifica
+      # stock-service.
+      FAV_MOCK_SECRETO_AVISOS: ${FAV_SECRETO_AVISOS:-secreto-de-prueba}
     ports:
       - "${PUERTO_FAV_MOCK:-8090}:8090"
     healthcheck:
@@ -232,6 +235,64 @@ services:
     # Reusa la imagen que construyó la réplica 1; es local, no hay registro del
     # que bajarla.
     pull_policy: never
+
+  # Administra el stock propio: reserva unidades sin sobreventa (HU-13,
+  # ADR-004), repone lo que baja del mínimo (HU-14) y le hace los pedidos a
+  # FAV, que le avisa por webhook en /webhooks/fav (ADR-009). Usa su propia base
+  # `stock` con su propio usuario, que no puede conectarse a la de proveedores
+  # (ADR-003). No publica puerto al host y todavía no está ruteado en el
+  # gateway: se lo alcanza desde la red interna como http://stock-service:8080.
+  stock-service:
+    build:
+      # El contexto es la raíz del repo: el módulo del servicio depende de
+      # pkg/observabilidad por ruta relativa, igual que los otros.
+      context: .
+      dockerfile: services/stock-service/Dockerfile
+    image: arq-soft/stock-service:dev
+    environment:
+      DATABASE_URL: postgres://${STOCK_DB_USER}:${STOCK_DB_PASSWORD}@postgres:5432/${STOCK_DB}?sslmode=disable
+      API_KEYS: ${API_KEYS:?falta API_KEYS en .env}
+      PORT: "8080"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      # El ciclo de reposición le pregunta a proveedores-service quién es el
+      # más barato. Va DIRECTO a una réplica por la red interna, no por el
+      # gateway: el gateway es la puerta de los consumidores externos, y el
+      # tráfico entre servicios propios no tiene que dar esa vuelta (ADR-005).
+      PROVEEDORES_URL: http://proveedores-service-1:8080
+      PROVEEDORES_API_KEY: ${PROVEEDORES_API_KEY:-${API_KEYS}}
+      INTERVALO_REPOSICION: ${INTERVALO_REPOSICION:-1h}
+      # Pedidos a FAV (ADR-009): salen directo a FAV, nunca por el gateway.
+      # Sin FAV_URL en .env se usa el mock, igual que import-service.
+      FAV_URL: ${FAV_URL:-http://fav-mock:8090}
+      FAV_API_KEY: ${FAV_API_KEY}
+      FAV_PROVEEDOR_ID: "11"
+      # El receptor del webhook, tal como lo alcanza FAV. Con el mock es la
+      # red interna; con el FAV desplegado tiene que ser una URL pública que
+      # llegue a stock-service sin pasar por el gateway.
+      FAV_NOTIFICACION_URL: ${FAV_NOTIFICACION_URL:-http://stock-service:8080/webhooks/fav}
+      FAV_SECRETO_AVISOS: ${FAV_SECRETO_AVISOS:-secreto-de-prueba}
+      INTERVALO_PEDIDOS_FAV: ${INTERVALO_PEDIDOS_FAV:-15m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # No es dependencia dura: si FAV no está, la orden espera en BORRADOR.
+      fav-mock:
+        condition: service_started
+      # Sin la réplica sana el primer ciclo no tendría a quién preguntar. No es
+      # fatal (la orden se crea sin proveedor y se reintenta), pero arrancar en
+      # orden evita una primera vuelta inútil en cada `docker compose up`.
+      proveedores-service-1:
+        condition: service_healthy
+    # La imagen es distroless: el healthcheck es el binario `sonda` de su
+    # propia imagen, que pregunta por /readyz y sale 0 o 1.
+    healthcheck:
+      test: ["CMD", "/sonda"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks: [interna]
+    restart: unless-stopped
 
   api-gateway:
     build:

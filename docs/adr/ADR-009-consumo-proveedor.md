@@ -1,7 +1,7 @@
 # ADR-009 — Consumo del proveedor: catálogo y pedidos de FAV (D9)
 
-- **Estado:** **aceptado e implementado para el catálogo** (`import-service`, 03/11), probado contra el contrato v1.1.0 y contra un mock que lo cumple; **propuesto** para los pedidos y el webhook (`stock-service`, Integrante 3). Falta que FAV defina su URL desplegada y cómo entrega la clave y el secreto de avisos (marcados **[?]** en su contrato): con `FAV_URL` en `.env`, `import-service` deja el mock y apunta al real sin cambiar código.
-- **Fecha:** 2026-10-23 · actualizado 2026-11-03
+- **Estado:** **aceptado e implementado** para el catálogo (`import-service`, 03/11) y para los pedidos y el webhook (`stock-service`, 06/11). Los dos están probados contra el contrato v1.1.0 y contra un mock que lo cumple. Falta que FAV defina su URL desplegada y cómo entrega la clave y el secreto de avisos (marcados **[?]** en su contrato): con `FAV_URL`, `FAV_API_KEY` y `FAV_SECRETO_AVISOS` en `.env`, los dos servicios dejan el mock y apuntan al real sin cambiar código. Lo que todavía no está hecho de esta decisión está en [Pendiente](#pendiente).
+- **Fecha:** 2026-10-23 · actualizado 2026-11-06
 - **Entrega:** 2 (23/10) y 3 (06/11)
 - **Decisión de la consigna:** D9. Incorporación de la capacidad externa, adaptación al contrato y comportamiento ante errores, cambios o indisponibilidad.
 
@@ -69,13 +69,14 @@ Cuando el stock propio de una prenda de FAV cae bajo el punto de reorden, `stock
 | `A_VERIFICAR` (el pago llegó después del vencimiento) | — | `VENCIDA → EN_REVISION`, sin acción automática; se resuelve por contacto con FAV |
 | Un estado desconocido | — | `SOLICITADA → EN_REVISION`, sin acción automática, como pide el contrato |
 
-- **Receptor del webhook:** `stock-service` expone `POST /webhooks/fav` en su propia dirección pública, **fuera del gateway**, para cumplir la regla 4.1. Es la única ruta de ese servicio accesible desde afuera, y se autentica con la firma, no con API key. El receptor:
+- **Cómo sale el pedido** (`internal/service/pedidos.go`): una prenda de FAV (`FAV-<varianteId>`) solo la vende FAV, así que su orden nace dirigida a FAV (proveedor 11) sin consultar el ranking, con **hasta 10 unidades** (el máximo por variante de su contrato; lo que falte lo pide el ciclo siguiente). El pedido sale en la misma vuelta del ciclo de reposición, o a mano con `POST /api/v1/stock/ordenes/{id}/pedido`. Al confirmarse, las unidades se suman al stock **en la misma transacción** que pasa la orden a `CONFIRMADA`.
+- **Receptor del webhook** (`internal/handler/pedidos.go`): `stock-service` expone `POST /webhooks/fav`, **fuera del gateway**, para cumplir la regla 4.1. Es la única ruta de ese servicio sin API key: se autentica con la firma, y sin `FAV_SECRETO_AVISOS` no se registra. El receptor:
   1. verifica la firma `X-FAV-Firma` con el secreto de avisos y rechaza con `401` si es inválida o tiene más de 5 minutos;
-  2. descarta los duplicados por `eventoId`, con la misma tabla de eventos procesados que el consumidor idempotente de [ADR-005](ADR-005-comunicacion.md);
-  3. responde `2xx` antes de 5 s y procesa después;
+  2. descarta los duplicados por `eventoId` con la tabla `avisos_fav_procesados`, cuya PRIMARY KEY deja pasar uno solo aunque lleguen dos a la vez;
+  3. responde `2xx` enseguida y procesa después; si la base no responde, contesta `503` para que FAV reintente;
   4. confirma con `GET /v1/pedidos/{pedidoId}` antes de cambiar la orden, porque el contrato dice que la fuente es la consulta y no el aviso;
   5. ignora un aviso con un estado anterior al que ya tiene.
-- **Respaldo:** cada 15 minutos, `GET /v1/pedidos/{pedidoId}` de las órdenes en `SOLICITADA` y de las `VENCIDA` de los últimos 7 días (para detectar un `A_VERIFICAR`), por si un aviso se perdió.
+- **Respaldo:** cada 15 minutos (`INTERVALO_PEDIDOS_FAV`), `GET /v1/pedidos/{pedidoId}` de las órdenes en `SOLICITADA` y de las `VENCIDA` de los últimos 7 días (para detectar un `A_VERIFICAR`), por si un aviso se perdió. La misma vuelta reintenta los pedidos que quedaron en `BORRADOR`. Si el aviso y la consulta confirman la misma orden a la vez, el `UPDATE` condicionado al estado deja ganar a uno solo y el stock entra una vez.
 
 ### Llamadas salientes, errores y cambios de contrato
 
@@ -85,14 +86,14 @@ Cuando el stock propio de una prenda de FAV cae bajo el punto de reorden, `stock
 - **Circuit breaker** sobre las llamadas a FAV ([ADR-010](ADR-010-resiliencia.md)).
 - **Cambios de contrato:** se ignoran los campos desconocidos y un estado desconocido se trata como `EN_REVISION`, como pide su política de compatibilidad. Los headers `Deprecation` y `Sunset` se loguean como advertencia, y un `410 VERSION_RETIRADA` dispara una alerta. Una respuesta que no valida contra el contrato se rechaza y no pisa los datos buenos que ya teníamos.
 - **Dudas y desvíos del contrato** (los puntos **[?]**, los límites marcados como propuesta y cualquier respuesta que no valide) se registran como **issue en el repositorio de FAV**, como pide el complemento de la consigna. El mail de contacto queda para las credenciales y para coordinar pedidos.
-- **Test de contrato:** se validan las respuestas reales contra la [copia del contrato v1.1.0](../contracts/consumidos/fav-catalogo-pedidos-v1.1.0.openapi.yaml). Contra **el mock de FAV** se prueban el formato de las llamadas, los errores forzados (`Prefer: code=409`, `429`, `503`) y el receptor: firma válida, inválida o vieja, y avisos duplicados; el contrato trae además un vector de prueba de la firma. El mock no guarda estado (su consulta devuelve siempre el mismo pedido en `PAGADO`), así que **los caminos de estado** (`VENCIDO` y `A_VERIFICAR` confirmados por la consulta) **y la idempotencia de los reintentos** se prueban con un doble propio que sí guarda estado.
+- **Test de contrato:** se validan las requests y respuestas contra la [copia del contrato v1.1.0](../contracts/consumidos/fav-catalogo-pedidos-v1.1.0.openapi.yaml). El mock que publica FAV no guarda estado (su consulta devuelve siempre el mismo pedido en `PAGADO`), así que el nuestro (`fav-mock`) sí lo guarda. Con él se prueban la idempotencia de los pedidos, los caminos de estado (`PAGADO`, `VENCIDO`, `A_VERIFICAR`) y el webhook: firma válida e inválida y avisos duplicados. El vector de prueba de la firma que trae el contrato se verifica en los dos servicios.
 - **Credenciales** (clave del grupo y secreto de avisos) en `.env`, nunca en el repo.
 
 ### Qué ve el usuario si FAV se cae
 
 - **El ranking sigue funcionando** con los demás proveedores y con las últimas ofertas válidas de FAV. Si tienen más de 24 horas, desaparecen del ranking.
 - **El frontend avisa** "precios de FAV sin actualizar desde HH:MM". Para eso, la respuesta de nuestra capacidad tiene que exponer la fecha de actualización de cada oferta, que **hoy nuestro contrato v1 no trae**: hay que agregar `actualizado_en` por oferta, un cambio compatible que se registra en [ADR-008](ADR-008-contrato-propio.md) cuando se implemente.
-- **Una orden de reposición que no se puede enviar** queda en `BORRADOR`, con el motivo a la vista, y se reintenta cuando se cierra el circuit breaker (con la misma `Idempotency-Key`, así que si FAV la había creado no se duplica). La capacidad que publicamos no falla por la caída de FAV.
+- **Una orden de reposición que no se puede enviar** queda en `BORRADOR`, con el motivo a la vista, y se reintenta en la vuelta siguiente (cada 15 minutos) con la misma `Idempotency-Key`, así que si FAV la había creado no se duplica. La capacidad que publicamos no falla por la caída de FAV.
 
 ## Por qué
 
@@ -104,17 +105,31 @@ Cuando el stock propio de una prenda de FAV cae bajo el punto de reorden, `stock
 
 ## Consecuencias aceptadas
 
-- **El catálogo ya se importa, pero todavía no llega al ranking**: falta el consumidor del evento en `proveedores-service` (Integrante 2). Los pedidos dependen de `stock-service` (Integrante 3).
+- **El catálogo ya se importa, pero todavía no llega al ranking**: falta el consumidor del evento en `proveedores-service` (Integrante 2). Los pedidos ya funcionan, porque no dependen del ranking.
 - **Hoy se prueba contra nuestro mock**, no contra FAV: el mock cumple su contrato (lo verifica el test de contrato), pero no reemplaza probar contra su despliegue.
 - **Tomamos 10 unidades como stock de FAV**, que no es su stock real: una recomendación de FAV puede terminar en un `409 STOCK_INSUFICIENTE` al pedir, y para más de 10 unidades por variante FAV no aparece en el ranking.
 - **El flete de FAV es un valor nuestro, no de ellos**, hasta acordarlo: el costo total de sus ofertas puede no ser el real.
 - **Sus precios pueden estar hasta 5 minutos desactualizados** en condiciones normales, y hasta 24 horas si FAV se cae.
 - **Rubros mezclados:** el comparador tiene productos de energía solar y va a sumar prendas. Cada variante de FAV es un producto propio, así que hasta que `catalog-service` las asocie con prendas de otros proveedores, FAV no compite con nadie en esos productos. La búsqueda ([ADR-006](ADR-006-busqueda.md)) va a necesitar filtrar por categoría.
 - **El pago es manual** (transferencia) y la entrega se coordina por contacto: la orden queda `SOLICITADA` hasta que una persona paga, y un pago tardío termina en `EN_REVISION` y se resuelve a mano.
-- **`stock-service` tiene una ruta accesible desde afuera que no pasa por el gateway.** Es una segunda puerta de entrada al sistema, limitada a `POST /webhooks/fav` y protegida solo por la firma HMAC, así que el secreto de avisos se cuida igual que una clave. Lo aceptamos porque la consigna (4.1) prohíbe canalizar la comunicación con el proveedor por el gateway; lo vamos a confirmar con la cátedra.
+- **`stock-service` tiene una ruta accesible desde afuera que no pasa por el gateway.** Es una segunda puerta de entrada al sistema, limitada a `POST /webhooks/fav` y protegida solo por la firma HMAC, así que el secreto de avisos se cuida igual que una clave. Lo aceptamos porque la consigna (4.1) prohíbe canalizar la comunicación con el proveedor por el gateway; lo vamos a confirmar con la cátedra. Con el mock, el aviso viaja por la red interna del compose; con el FAV desplegado, `FAV_NOTIFICACION_URL` tiene que ser una URL pública que llegue solo a esa ruta (parte de la nube, Integrante 4).
 - **Dependemos de definiciones pendientes de FAV:** su URL desplegada, cómo entrega la clave y el secreto, y los límites que marcó como propuesta (60 pedidos por minuto, 20 variantes, 10 unidades).
 
 ## Con qué lo medimos
+
+Mediciones del 06/11 sobre los pedidos (`stock-service`):
+
+- **Prueba de punta a punta** con los binarios reales (`fav-mock`, `stock-service` y PostgreSQL 16):
+  - El primer ciclo creó las órdenes de las 2 prendas bajo el mínimo y les hizo el pedido sin intervención: las dos pasaron a `SOLICITADA` con su `pedido_id`.
+  - Un aviso `PAGADO` con firma inválida recibió `401` y la orden no cambió. La consulta de respaldo lo corrigió en la vuelta siguiente: `CONFIRMADA`, y el stock de la remera pasó de 2 a 10.
+  - Un aviso `VENCIDO` enviado dos veces se procesó una sola vez (`VENCIDA`). Un pago tardío (`A_VERIFICAR`) dejó la orden en `EN_REVISION`.
+- **Test de contrato en verde** (`internal/fav/contrato_test.go`): nuestro `POST /v1/pedidos` y nuestro `GET /v1/pedidos/{pedidoId}` cumplen el contrato, y el validador detecta un pedido de 11 unidades. El cliente entiende los ejemplos `Pedido` y `PedidoPagado` y traduce los 4 ejemplos de error del contrato. El vector de firma verifica. Las respuestas y los avisos del mock validan contra el mismo contrato (`import-service/internal/fav/contrato_pedidos_test.go`).
+- **Reintentos:** ante `503` y `500`, el pedido sale al tercer intento con la **misma clave y el mismo cuerpo**, respetando `Retry-After`. Con FAV caído se rinde a los 4 intentos, y un intento colgado se corta por timeout. `409`, `400`, `401` y una respuesta fuera de contrato se intentan 1 vez. Después de un `409 STOCK_INSUFICIENTE`, el intento siguiente usa la clave `<id>-2`.
+- **Contra PostgreSQL 16 real:**
+  - 20 entregas simultáneas del mismo aviso: se registra 1.
+  - 10 confirmaciones simultáneas de la misma orden (webhook y respaldo): el stock suma 8 una sola vez.
+  - Un fallo después de mover la orden deshace la orden y el stock.
+- **En total:** 151 casos unitarios en verde, 0 en rojo, y 16 tests de integración contra PostgreSQL real, repetidos 5 veces. Cobertura: `internal/fav` 86,3 %, `internal/service` 78,5 %, `internal/handler` 78,4 %.
 
 Mediciones del 03/11 sobre `import-service` (tests de `go test ./...`):
 
@@ -130,6 +145,15 @@ Cuando esté integrado de punta a punta:
 - **Órdenes que terminaron en `409`:** mide cuánto nos cuesta no conocer su stock.
 - **Caída simulada en el Game Day:** con FAV cortado, la capacidad publicada sigue en `200`, el ranking muestra sus últimas ofertas válidas y las órdenes nuevas esperan en `BORRADOR`.
 - **Test de contrato** en verde contra la v1.1.0 y contra su mock.
+
+## Pendiente
+
+Partes de esta decisión que todavía no están en el código:
+
+- **Circuit breaker en los pedidos.** Hoy solo el catálogo tiene breaker. Los pedidos tienen timeout, reintentos y la vuelta cada 15 minutos, que ya limita la carga sobre FAV caído, pero no un breaker.
+- **Un intento sin respuesta definitiva durante 24 horas** no pasa solo a `EN_REVISION`. Sigue en `BORRADOR` con el motivo a la vista y se reintenta con la misma clave. RN-15 no permite `BORRADOR → EN_REVISION`, así que hay que decidir si se suma esa transición.
+- **`Deprecation`, `Sunset` y `410 VERSION_RETIRADA`** no se tratan aparte: un `410` cuenta como pedido rechazado.
+- **La URL pública del webhook** para el FAV desplegado (ver *Consecuencias*).
 
 ## Qué nos haría cambiar de idea
 

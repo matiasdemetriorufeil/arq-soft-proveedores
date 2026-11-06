@@ -13,7 +13,7 @@ Reparto del trabajo entre los 4 integrantes para llegar a la Entrega 3 y a la pr
 |---|---|---|
 | 1 (Fede) | Infraestructura, mensajería e importación de FAV | ✅ Hecho (rama `feat/import-service`): compose con RabbitMQ, MongoDB, Redis, Meilisearch, `fav-mock` y base de stock; `pkg/mensajeria` y `docs/contracts/eventos.md`; `import-service` con test de contrato; ADR-014 y ADR-001, 003, 005, 009 y 010 actualizados. Falta: correr los tests de integración de MongoDB y `docker compose up` completo en una máquina con Docker |
 | 2 | Lectura rápida: caché y búsqueda en `proveedores-service` | ⏳ |
-| 3 | `stock-service`: reserva, reposición y pedidos a FAV | ⏳ |
+| 3 | `stock-service`: reserva, reposición y pedidos a FAV | ✅ Hecho (rama `feat/stock-service`): servicio en capas con su base, reserva sin sobreventa con test de concurrencia, reposición automática, pedidos a FAV con `Idempotency-Key` y webhook HMAC (estos dos los terminó el Integrante 1), ADR-004 nuevo y ADR-002, 009 y SPEC al día. Probado contra PostgreSQL real y de punta a punta contra el mock de FAV. Falta: `docker compose up` completo y rutearlo en el gateway (Integrante 4) |
 | 4 | Entrada, frontend, nube y operación | ⏳ |
 
 Cada uno actualiza su fila cuando termina.
@@ -102,7 +102,7 @@ Documentación:
 **Lo que quedó listo para los demás**
 
 - **Integrante 2:** el formato del evento, las colas y los pasos del consumidor están en [`contracts/eventos.md`](contracts/eventos.md). Usá `pkg/mensajeria` (`LeerSobre`, `DeclararTopologia`, los tipos de `ListaPreciosActualizada`) para no declarar las colas distinto. FAV ya existe como proveedor 11 (`003_proveedor_fav.sql`). Redis y Meilisearch ya levantan en el compose (`REDIS_PASSWORD` y `MEILI_MASTER_KEY` en `.env`).
-- **Integrante 3:** la base `stock` con su usuario ya se crea en el Postgres del compose (`STOCK_DB`, `STOCK_DB_USER`, `STOCK_DB_PASSWORD`). El mock de FAV (`services/import-service/internal/favmock`) por ahora solo tiene el catálogo: hay que sumarle `POST /v1/pedidos`, `GET /v1/pedidos/{id}` y el webhook, y el test de contrato los valida igual.
+- **Integrante 3:** la base `stock` con su usuario ya se crea en el Postgres del compose (`STOCK_DB`, `STOCK_DB_USER`, `STOCK_DB_PASSWORD`). El mock de FAV (`services/import-service/internal/favmock`) ya tiene `POST /v1/pedidos`, `GET /v1/pedidos/{id}` y manda el webhook firmado, validados por el test de contrato.
 - **Integrante 4:** el mock de FAV se publica en `localhost:8090` y la UI de RabbitMQ en `localhost:15672`, para el tablero y el Game Day (`POST /_mock/modo {"modo":"caido"}`).
 
 ### Integrante 2: Lectura rápida: caché y búsqueda en `proveedores-service`
@@ -126,19 +126,21 @@ Documentación:
 
 Rama: `feat/stock-service`. Es **la operación crítica de la defensa** (D4) y el **segundo patrón** (en capas).
 
-- [ ] `stock-service` en Go, en capas (handler → service → repository), con su propia base PostgreSQL
-- [ ] Reserva de stock **sin sobreventa** con `SELECT … FOR UPDATE` dentro de una transacción (RN-13)
-- [ ] Test de concurrencia: N reservas simultáneas sobre el mismo producto nunca superan el disponible
-- [ ] Punto de reorden y orden de reposición, una sola abierta por producto (RN-14, RN-15)
-- [ ] Le pide a `proveedores-service` el mejor proveedor (timeout 1 s y 2 reintentos, [ADR-005](adr/ADR-005-comunicacion.md))
-- [ ] Pedido a FAV con `Idempotency-Key` y receptor del webhook con firma HMAC (directo, fuera del gateway)
-- [ ] Tests unitarios de las transiciones de la orden y de integración contra PostgreSQL real
+- [x] `stock-service` en Go, en capas (handler → service → repository), con su propia base PostgreSQL
+- [x] Reserva de stock **sin sobreventa** con `SELECT … FOR UPDATE` dentro de una transacción (RN-13)
+- [x] Test de concurrencia: N reservas simultáneas sobre el mismo producto nunca superan el disponible
+- [x] Punto de reorden y orden de reposición, una sola abierta por producto (RN-14, RN-15)
+- [x] Le pide a `proveedores-service` el mejor proveedor (timeout 1 s y 2 reintentos, [ADR-005](adr/ADR-005-comunicacion.md))
+- [x] Pedido a FAV con `Idempotency-Key` y receptor del webhook con firma HMAC (directo, fuera del gateway). Lo terminó el Integrante 1 el 06/11, junto con los pedidos en el mock de FAV y su test de contrato
+- [x] Tests unitarios de las transiciones de la orden y de integración contra PostgreSQL real
+
+Quedó pendiente (anotado en ADR-009, sección *Pendiente*): circuit breaker en los pedidos, pasar a `EN_REVISION` un intento sin respuesta en 24 h, y la URL pública del webhook para el FAV desplegado (parte de la nube).
 
 Documentación:
-- [ ] **ADR-004 (D4, consistencia y concurrencia):** es el único obligatorio que todavía no existe
-- [ ] ADR-002 actualizado con el segundo patrón ya implementado
-- [ ] ADR-009 (pedidos) a "aceptado"
-- [ ] `SPEC.md`: HU de stock y reposición de "propuesto" a "implementado"
+- [x] **ADR-004 (D4, consistencia y concurrencia):** es el único obligatorio que todavía no existe
+- [x] ADR-002 actualizado con el segundo patrón ya implementado
+- [x] ADR-009 (pedidos) a "aceptado"
+- [x] `SPEC.md`: HU de stock y reposición de "propuesto" a "implementado"
 
 ### Integrante 4: Entrada, frontend, nube y operación
 
