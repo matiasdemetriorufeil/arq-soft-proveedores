@@ -1,23 +1,27 @@
 # stock-service
 
-Servicio en Go que administra el **stock propio** y expone una sola operación de negocio: **reservar unidades sin sobreventa** (HU-13, RN-13). La garantía la da PostgreSQL: la reserva corre dentro de una transacción que bloquea la fila del SKU con `SELECT … FOR UPDATE`, y es idempotente por `Idempotency-Key`.
+Servicio en Go que administra el **stock propio**. Hace dos cosas:
+
+1. **Reservar unidades sin sobreventa** (HU-13, RN-13). La garantía la da PostgreSQL: la reserva corre dentro de una transacción que bloquea la fila del SKU con `SELECT … FOR UPDATE`, y es idempotente por `Idempotency-Key`.
+2. **Reponer lo que baja del mínimo** (HU-14, RN-14 a RN-16). Un ciclo interno busca los SKUs por debajo de su mínimo, le pregunta a `proveedores-service` quién es el más barato y crea una orden de reposición en `BORRADOR`, una sola abierta por producto.
 
 - **Arquitectura en capas** (handler → service → repository), distinta a propósito de la hexagonal de `proveedores-service`. Ver [ADR-002](../../docs/adr/ADR-002-arquitectura-interna.md).
-- Consistencia y concurrencia: [ADR-004](../../docs/adr/ADR-004-consistencia-y-concurrencia.md).
+- Consistencia y concurrencia: [ADR-004](../../docs/adr/ADR-004-consistencia-y-concurrencia.md). Comunicación entre servicios: [ADR-005](../../docs/adr/ADR-005-comunicacion.md).
 - Almacenamiento: PostgreSQL, **base `stock` con su propio usuario** ([ADR-003](../../docs/adr/ADR-003-persistencia.md)). Las migraciones están embebidas en el binario y se aplican al arrancar.
 - Logs JSON (`log/slog`) correlacionados con `X-Request-ID` y `trace_id`; trazas OpenTelemetry con un span por consulta a Postgres.
 
-Lo que **no** hace (todavía): reposición automática, órdenes de compra ni llamadas a `proveedores-service` (HU-14), y nada de FAV. Tampoco está publicado en el `api-gateway`: por ahora solo se lo alcanza desde la red interna.
+Lo que **no** hace (todavía): **enviarle el pedido a FAV**. La orden se queda en `BORRADOR`; pasarla a `SOLICITADA` es llamar a `POST /v1/pedidos` de FAV, y eso —junto con el receptor del webhook— es lo que falta ([ADR-009](../../docs/adr/ADR-009-consumo-proveedor.md)). Mientras tanto las transiciones se operan a mano por la API. Tampoco está publicado en el `api-gateway`: por ahora solo se lo alcanza desde la red interna.
 
 ## Estructura
 
 ```
-cmd/server/            arranque, configuración, trazas, migraciones y apagado ordenado
+cmd/server/            arranque, configuración, trazas, migraciones, ciclo de reposición y apagado ordenado
 cmd/sonda/             healthcheck del contenedor (pregunta por /readyz)
 internal/handler/      HTTP: validación, API key, request log, problem+json, health checks
-internal/service/      negocio: dueño de la transacción y de la regla de "sin sobreventa"
+internal/service/      negocio: dueño de la transacción, de "sin sobreventa" y de las transiciones de la orden
 internal/repository/   datos: pool pgx, SELECT … FOR UPDATE, migraciones, span por consulta
-migrations/            001_init.sql (esquema) y 002_seed.sql (30 SKUs de demo), embebidos
+internal/proveedores/  cliente HTTP de proveedores-service: timeout 1 s, 2 reintentos, traducción de errores
+migrations/            001_init.sql, 002_seed.sql (30 SKUs de demo) y 003_ordenes_reposicion.sql, embebidos
 ```
 
 La dependencia va en un solo sentido: `handler → service → repository`. **`repository` es el único paquete que importa `pgx`** y el único que escribe SQL; `service` solo ve el tipo opaco `repository.Tx`, que recibe y vuelve a pasar sin poder ejecutar nada con él.
@@ -40,6 +44,18 @@ return s.repo.EnTransaccion(ctx, func(tx repository.Tx) error {
 |---|---|---|
 | `stock_productos` | `sku` PK, `disponible` ≥ 0, `reservado` ≥ 0, `minimo`, `actualizado_en` | es la fila que se bloquea al reservar. El `CHECK (disponible >= 0)` es la última red: aunque falle la lógica, la sobreventa no entra |
 | `reservas` | `id` UUID PK, `sku` FK, `cantidad` > 0, `clave_idempotencia` **UNIQUE**, `estado`, `creado_en` | el `UNIQUE` es lo que hace idempotente a la operación ante dos reintentos simultáneos |
+| `ordenes_reposicion` | `id` UUID PK, `sku` FK, `cantidad` > 0, `estado`, `proveedor_id`/`proveedor_nombre`/`costo_total` (los tres anulables), `motivo`, `intento`, `creado_en`, `actualizado_en` | el índice **parcial** `ux_ordenes_abierta_por_sku ON (sku) WHERE estado <> 'CONFIRMADA'` garantiza una sola orden abierta por producto (CA-14.2), incluso si dos réplicas corren el ciclo a la vez |
+
+### Máquina de estados de la orden (RN-15)
+
+```
+BORRADOR ──→ SOLICITADA ──→ CONFIRMADA        (único estado final)
+                   │
+                   ├──────→ VENCIDA ──→ EN_REVISION
+                   └──────→ EN_REVISION
+```
+
+Las otras 20 combinaciones se rechazan con `409 TRANSICION_INVALIDA`. **`VENCIDA` y `EN_REVISION` cuentan como abiertas**: las dos necesitan que una persona intervenga ([ADR-009](../../docs/adr/ADR-009-consumo-proveedor.md)), así que con una sin resolver el ciclo no crea otra orden para ese producto. Es a propósito: si pudiera, se podría terminar comprando dos veces lo mismo.
 
 ## Configuración
 
@@ -49,6 +65,9 @@ return s.repo.EnTransaccion(ctx, func(tx repository.Tx) error {
 | `API_KEYS` | sí | Claves aceptadas en `X-API-Key`, separadas por coma. Si está vacía, el servicio no arranca. |
 | `PORT` | no | Puerto HTTP. Por defecto `8080`. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | Colector al que exportar las trazas, por ejemplo `http://jaeger:4318`. Vacío: el servicio arranca igual y las trazas quedan en no-op. |
+| `PROVEEDORES_URL` | no | Base de `proveedores-service`, por ejemplo `http://proveedores-service-1:8080`. **Va directo a una réplica, no al gateway** ([ADR-005](../../docs/adr/ADR-005-comunicacion.md)). **Si falta, el ciclo de reposición queda apagado** con un aviso en el log: la reserva y las consultas de órdenes siguen funcionando. |
+| `PROVEEDORES_API_KEY` | no | Clave con la que se consulta esa capacidad. Tiene que estar en el `API_KEYS` de `proveedores-service`. |
+| `INTERVALO_REPOSICION` | no | Cada cuánto corre el ciclo. Por defecto `1h`, **mínimo `10s`** (para la demo). Un valor que no sea una duración de Go, o menor al mínimo, impide el arranque. |
 
 ## Cómo correrlo
 
@@ -155,12 +174,42 @@ SKUs útiles del seed: `PAN-450W-MONO` (120 unidades), `INV-10KW-TRI` (6, sirve 
 | 400 | `PARAMETRO_INVALIDO` | el cuerpo no es JSON válido, falta `sku`, `cantidad` no es un entero > 0, o falta `Idempotency-Key` |
 | 401 | `NO_AUTORIZADO` | falta `X-API-Key` o no es válida |
 | 404 | `PRODUCTO_NO_ENCONTRADO` | el SKU no está en `stock_productos` |
+| 404 | `ORDEN_NO_ENCONTRADA` | no hay ninguna orden de reposición con ese id |
 | 409 | `STOCK_INSUFICIENTE` | no hay unidades suficientes; el `detail` dice cuántas había |
+| 409 | `TRANSICION_INVALIDA` | RN-15 no permite ese cambio de estado; la orden no cambió |
 | 503 | `NO_DISPONIBLE` | la base falla o no responde en 2 s; reintentar más tarde |
 
 ```json
 {"type":"https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#STOCK_INSUFICIENTE","title":"Stock insuficiente","status":409,"detail":"se pidieron 6 unidades de 'INV-10KW-TRI' y hay 4 disponibles","code":"STOCK_INSUFICIENTE","instance":"/api/v1/stock/reservas","request_id":"demo-1"}
 ```
+
+### `GET /api/v1/stock/ordenes`
+
+Lista las órdenes de reposición, la más nueva primero. Filtro opcional `?estado=`.
+
+```bash
+curl -H "X-API-Key: dev" "http://stock-service:8080/api/v1/stock/ordenes?estado=BORRADOR"
+```
+
+```json
+[{"id":"3c1a…","sku":"PROT-DC-1000V","cantidad":16,"estado":"BORRADOR",
+  "proveedor_id":7,"proveedor_nombre":"Sur Solar SRL","costo_total":184320.50,
+  "creado_en":"2026-11-06T19:40:12Z"}]
+```
+
+Una orden creada cuando `proveedores-service` no respondió viene con `proveedor_id` en `null` y el `motivo` explicando por qué. Un `estado` que no es uno de los cinco da `400`, no una lista vacía.
+
+### `POST /api/v1/stock/ordenes/{id}/transiciones`
+
+Mueve la orden a otro estado, si RN-15 lo permite. Existe para operar a mano lo que todavía no dispara nada: el ciclo deja la orden en `BORRADOR` y quien la pasa a `SOLICITADA` es el pedido a FAV, que falta.
+
+```bash
+curl -i -X POST http://stock-service:8080/api/v1/stock/ordenes/3c1a…/transiciones \
+  -H "X-API-Key: dev" -H "Content-Type: application/json" \
+  -d '{"estado":"SOLICITADA"}'
+```
+
+`200` con la orden actualizada. Si la transición no está permitida, `409 TRANSICION_INVALIDA` y la orden **no cambia**; el `detail` dice en qué estado está y qué se permite desde ahí. Si otra request la movió en el medio, se rechaza con el estado nuevo en lugar de pisarlo.
 
 ### `GET /healthz` y `GET /readyz`
 

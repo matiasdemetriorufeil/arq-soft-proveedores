@@ -12,7 +12,14 @@ paquete**: así las colas se declaran con los mismos argumentos de los dos lados
 | Evento | Publica | Consume | Estado |
 |---|---|---|---|
 | [`ListaPreciosActualizada`](#listapreciosactualizada-v1) v1 | `import-service` | `proveedores-service` | publicación implementada; consumo pendiente (Integrante 2) |
-| `StockBajoMinimo` | `stock-service` | `stock-service` (worker) | propuesto (Integrante 3) |
+
+**`StockBajoMinimo` se retiró** (06/11). Estaba propuesto para que `stock-service`
+se avisara a sí mismo que un producto cayó bajo el mínimo. Al implementar HU-14 la
+orden de reposición se crea de forma **síncrona**, dentro del mismo ciclo que
+detecta el faltante ([ADR-005](../adr/ADR-005-comunicacion.md)): el publicador y el
+consumidor habrían sido el mismo servicio, así que la mensajería solo agregaba un
+intermediario y una cola más que operar, sin desacoplar nada. El requisito de la
+consigna de un evento **publicado y consumido** lo cubre `ListaPreciosActualizada`.
 
 ## Sobre común
 

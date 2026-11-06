@@ -233,11 +233,11 @@ services:
     # que bajarla.
     pull_policy: never
 
-  # Administra el stock propio y reserva unidades sin sobreventa (HU-13,
-  # ADR-004). Usa su propia base `stock` con su propio usuario, que no puede
-  # conectarse a la de proveedores (ADR-003). No publica puerto al host y
-  # todavía no está ruteado en el gateway: se lo alcanza desde la red interna
-  # como http://stock-service:8080.
+  # Administra el stock propio: reserva unidades sin sobreventa (HU-13,
+  # ADR-004) y repone lo que baja del mínimo (HU-14). Usa su propia base
+  # `stock` con su propio usuario, que no puede conectarse a la de proveedores
+  # (ADR-003). No publica puerto al host y todavía no está ruteado en el
+  # gateway: se lo alcanza desde la red interna como http://stock-service:8080.
   stock-service:
     build:
       # El contexto es la raíz del repo: el módulo del servicio depende de
@@ -250,8 +250,20 @@ services:
       API_KEYS: ${API_KEYS:?falta API_KEYS en .env}
       PORT: "8080"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      # El ciclo de reposición le pregunta a proveedores-service quién es el
+      # más barato. Va DIRECTO a una réplica por la red interna, no por el
+      # gateway: el gateway es la puerta de los consumidores externos, y el
+      # tráfico entre servicios propios no tiene que dar esa vuelta (ADR-005).
+      PROVEEDORES_URL: http://proveedores-service-1:8080
+      PROVEEDORES_API_KEY: ${PROVEEDORES_API_KEY:-${API_KEYS}}
+      INTERVALO_REPOSICION: ${INTERVALO_REPOSICION:-1h}
     depends_on:
       postgres:
+        condition: service_healthy
+      # Sin la réplica sana el primer ciclo no tendría a quién preguntar. No es
+      # fatal (la orden se crea sin proveedor y se reintenta), pero arrancar en
+      # orden evita una primera vuelta inútil en cada `docker compose up`.
+      proveedores-service-1:
         condition: service_healthy
     # La imagen es distroless: el healthcheck es el binario `sonda` de su
     # propia imagen, que pregunta por /readyz y sale 0 o 1.

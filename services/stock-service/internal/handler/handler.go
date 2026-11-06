@@ -30,6 +30,14 @@ type ServicioStock interface {
 	Stock(ctx context.Context, sku string) (repository.Stock, error)
 }
 
+// ServicioOrdenes es lo que el adaptador necesita de la capa de negocio para
+// las órdenes de reposición (HU-14). Está declarada acá, igual que
+// ServicioStock, para probar la traducción de errores con un doble.
+type ServicioOrdenes interface {
+	Ordenes(ctx context.Context, estado string) ([]repository.Orden, error)
+	TransicionarOrden(ctx context.Context, id, hacia string) (repository.Orden, error)
+}
+
 // Salud es el chequeo de /readyz.
 type Salud interface {
 	Ping(ctx context.Context) error
@@ -38,20 +46,32 @@ type Salud interface {
 // Config agrupa las dependencias del adaptador HTTP.
 type Config struct {
 	Servicio ServicioStock
-	Salud    Salud
-	APIKeys  []string
-	Logger   *slog.Logger
+	// Ordenes puede ser nil: en ese caso las rutas de órdenes no se registran
+	// y el servicio expone solo la reserva.
+	Ordenes ServicioOrdenes
+	Salud   Salud
+	APIKeys []string
+	Logger  *slog.Logger
 }
 
 // NuevoHandler arma el router con sus middlewares. Las rutas de negocio van
 // detrás de conAPIKey; las de salud, no: las consulta el healthcheck del
 // contenedor, que no tiene la clave.
 func NuevoHandler(cfg Config) http.Handler {
-	h := &handler{svc: cfg.Servicio, salud: cfg.Salud}
+	h := &handler{svc: cfg.Servicio, ordenesSvc: cfg.Ordenes, salud: cfg.Salud}
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /api/v1/stock/reservas",
 		conAPIKey(cfg.APIKeys, http.HandlerFunc(h.reservar)))
+	if cfg.Ordenes != nil {
+		// Van antes de GET /api/v1/stock/{sku} en este archivo por claridad;
+		// el mux de Go 1.22 elige igual el patrón más específico, así que
+		// "ordenes" no se confunde con un SKU.
+		mux.Handle("GET /api/v1/stock/ordenes",
+			conAPIKey(cfg.APIKeys, http.HandlerFunc(h.ordenes)))
+		mux.Handle("POST /api/v1/stock/ordenes/{id}/transiciones",
+			conAPIKey(cfg.APIKeys, http.HandlerFunc(h.transicionarOrden)))
+	}
 	mux.Handle("GET /api/v1/stock/{sku}",
 		conAPIKey(cfg.APIKeys, http.HandlerFunc(h.stock)))
 	mux.HandleFunc("GET /healthz", h.healthz)
@@ -61,8 +81,9 @@ func NuevoHandler(cfg Config) http.Handler {
 }
 
 type handler struct {
-	svc   ServicioStock
-	salud Salud
+	svc        ServicioStock
+	ordenesSvc ServicioOrdenes
+	salud      Salud
 }
 
 // cuerpoReserva es el cuerpo de POST /api/v1/stock/reservas. `cantidad` queda

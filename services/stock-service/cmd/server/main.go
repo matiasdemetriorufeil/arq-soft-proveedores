@@ -18,6 +18,7 @@ import (
 
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/pkg/observabilidad"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/handler"
+	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/proveedores"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/repository"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/service"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/migrations"
@@ -31,16 +32,34 @@ const (
 	timeoutMigracion   = 10 * time.Second
 )
 
+const (
+	// intervaloReposicionPorDefecto es cada cuánto corre el ciclo que detecta
+	// los faltantes (RN-14). Una hora es lo que dice ADR-009.
+	intervaloReposicionPorDefecto = time.Hour
+	// intervaloReposicionMinimo acota el valor configurado: para la demo se
+	// baja a segundos, pero no a cero (sería un ciclo ocupado).
+	intervaloReposicionMinimo = 10 * time.Second
+)
+
 type config struct {
 	databaseURL string
 	apiKeys     []string
 	port        string
+
+	// Reposición automática (HU-14). Sin proveedoresURL el ciclo queda
+	// apagado: no puede impedir que la reserva, que es la operación
+	// publicada, funcione.
+	proveedoresURL      string
+	proveedoresAPIKey   string
+	intervaloReposicion time.Duration
 }
 
 func cargarConfig() (config, error) {
 	c := config{
-		databaseURL: strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		port:        strings.TrimSpace(os.Getenv("PORT")),
+		databaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		port:              strings.TrimSpace(os.Getenv("PORT")),
+		proveedoresURL:    strings.TrimSpace(os.Getenv("PROVEEDORES_URL")),
+		proveedoresAPIKey: strings.TrimSpace(os.Getenv("PROVEEDORES_API_KEY")),
 	}
 	if c.port == "" {
 		c.port = "8080"
@@ -55,6 +74,23 @@ func cargarConfig() (config, error) {
 	}
 	if len(c.apiKeys) == 0 {
 		return c, errors.New("API_KEYS es obligatoria (lista de claves separadas por coma)")
+	}
+
+	c.intervaloReposicion = intervaloReposicionPorDefecto
+	if v := strings.TrimSpace(os.Getenv("INTERVALO_REPOSICION")); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return c, fmt.Errorf("INTERVALO_REPOSICION inválido (%q): %w", v, err)
+		}
+		if d < intervaloReposicionMinimo {
+			return c, fmt.Errorf("INTERVALO_REPOSICION no puede ser menor a %s", intervaloReposicionMinimo)
+		}
+		c.intervaloReposicion = d
+	}
+	// Si no hay clave propia para proveedores-service se usa la primera de las
+	// nuestras: en el compose las dos puntas comparten API_KEYS.
+	if c.proveedoresAPIKey == "" {
+		c.proveedoresAPIKey = c.apiKeys[0]
 	}
 	return c, nil
 }
@@ -122,12 +158,33 @@ func run(log *slog.Logger) error {
 	repo := repository.NuevoRepo(pool)
 	svc := service.NuevoServicio(repo)
 
+	// El cliente de proveedores-service se le inyecta al servicio como una
+	// interfaz: la capa de negocio no conoce el transporte. El transporte es el
+	// de otelhttp para que la llamada salga con traceparent y aparezca en la
+	// misma traza del ciclo en Jaeger.
+	var cliente service.ClienteProveedores
+	if cfg.proveedoresURL != "" {
+		cliente = proveedores.NuevoCliente(cfg.proveedoresURL, cfg.proveedoresAPIKey,
+			otelhttp.NewTransport(proveedores.TransportePropio()))
+	} else {
+		log.Warn("reposición automática apagada: falta PROVEEDORES_URL; " +
+			"las consultas y transiciones de órdenes siguen disponibles")
+	}
+	svcOrdenes := service.NuevoServicioOrdenes(repo, cliente)
+
+	if cliente != nil {
+		// El ciclo termina con el contexto de la señal: al apagar, deja de
+		// correr y no bloquea el apagado ordenado del servidor.
+		go correrCicloDeReposicion(ctx, log, svcOrdenes, cfg.intervaloReposicion)
+	}
+
 	// otelhttp va por fuera del handler que arma el adaptador: continúa la traza
 	// que viene en el `traceparent` del gateway y abre el span del servidor antes
 	// de que corra el middleware de log, que por eso emite su línea con trace_id.
 	h := otelhttp.NewHandler(
 		handler.NuevoHandler(handler.Config{
 			Servicio: svc,
+			Ordenes:  svcOrdenes,
 			Salud:    repo,
 			APIKeys:  cfg.apiKeys,
 			Logger:   log,
@@ -175,6 +232,53 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("servidor detenido")
 	return nil
+}
+
+// correrCicloDeReposicion corre el ciclo una vez al arrancar y después cada
+// `intervalo`, hasta que el contexto de la señal se cancela (HU-14). Una vuelta
+// que falla no detiene las siguientes: el faltante sigue estando y el ciclo
+// siguiente lo vuelve a intentar.
+func correrCicloDeReposicion(ctx context.Context, log *slog.Logger,
+	svc *service.ServicioOrdenes, intervalo time.Duration) {
+
+	log.Info("reposición automática encendida", "intervalo", intervalo.String())
+	t := time.NewTicker(intervalo)
+	defer t.Stop()
+
+	for {
+		unaVueltaDeReposicion(ctx, log, svc)
+		select {
+		case <-ctx.Done():
+			log.Info("reposición automática detenida")
+			return
+		case <-t.C:
+		}
+	}
+}
+
+func unaVueltaDeReposicion(ctx context.Context, log *slog.Logger, svc *service.ServicioOrdenes) {
+	inicio := time.Now()
+	res, err := svc.CicloDeReposicion(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return // apagado: no es una falla del ciclo
+		}
+		log.Error("el ciclo de reposición falló", "error", err.Error())
+		return
+	}
+	nivel := slog.LevelInfo
+	if res.Fallidas > 0 {
+		nivel = slog.LevelWarn
+	}
+	log.LogAttrs(ctx, nivel, "ciclo de reposición",
+		slog.Int("bajo_minimo", res.BajoMinimo),
+		slog.Int("creadas", res.Creadas),
+		slog.Int("salteadas", res.Salteadas),
+		slog.Int("sin_proveedor", res.SinProveedor),
+		slog.Int("fallidas", res.Fallidas),
+		slog.Any("problemas", res.Problemas),
+		slog.Float64("duration_ms", float64(time.Since(inicio).Microseconds())/1000),
+	)
 }
 
 // migrarConReintentos tolera que Postgres todavía esté arrancando (por

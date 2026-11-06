@@ -64,14 +64,14 @@ estados.
 | **RN-11** | Los errores se devuelven siempre en `application/problem+json` con un `code` estable. Los códigos son: `PARAMETRO_INVALIDO`, `NO_AUTORIZADO`, `PRODUCTO_NO_ENCONTRADO`, `RUTA_NO_ENCONTRADA`, `NO_DISPONIBLE`. |
 | **RN-12** | Una réplica caída no puede dejar sin servicio a la capacidad mientras quede otra sana. Una consulta es un `GET` sin efectos y puede repetirse sin riesgo. |
 
-### Stock y reposición — RN-13 implementado; la reposición sigue propuesta
+### Stock y reposición — RN-13 a RN-16 implementadas en `stock-service`
 
 | ID | Regla |
 |---|---|
 | **RN-13** | **Sin sobreventa:** el stock reservado nunca supera el disponible, aun con reservas simultáneas. Ninguna reserva se pierde ni se duplica. **Implementado** en `services/stock-service`: `SELECT … FOR UPDATE` dentro de la transacción que abre `internal/service`, `CHECK (disponible >= 0)` en la base e idempotencia por `Idempotency-Key` ([ADR-004](docs/adr/ADR-004-consistencia-y-concurrencia.md)). |
-| **RN-14** | **Punto de reorden:** cuando el stock de un producto baja de su mínimo configurado, corresponde generar una orden de reposición. Solo una orden abierta por producto. |
-| **RN-15** | Una orden de reposición pasa por los estados `BORRADOR → SOLICITADA → CONFIRMADA`, en ese orden y sin saltear estados. Desde `SOLICITADA` también puede pasar a `VENCIDA` (el proveedor la dio de baja por falta de pago) o a `EN_REVISION` (el proveedor informa un estado que no conocemos), y desde `VENCIDA` a `EN_REVISION` (el pago llegó después del vencimiento). `EN_REVISION` se resuelve a mano ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)). |
-| **RN-16** | La orden de reposición se dirige al proveedor con **menor costo total** para la cantidad a reponer (RN-01 a RN-05). |
+| **RN-14** | **Punto de reorden:** cuando el stock de un producto baja de su mínimo configurado, corresponde generar una orden de reposición. Solo una orden abierta por producto. **Implementado:** el ciclo de `internal/service/reposicion.go` corre al arrancar y cada `INTERVALO_REPOSICION`; la unicidad la garantiza el índice parcial `ux_ordenes_abierta_por_sku`. La cantidad a reponer es `minimo × 2 − disponible`: RN-14 no la define, así que se eligió esa regla y queda documentada. |
+| **RN-15** | Una orden de reposición pasa por los estados `BORRADOR → SOLICITADA → CONFIRMADA`, en ese orden y sin saltear estados. Desde `SOLICITADA` también puede pasar a `VENCIDA` (el proveedor la dio de baja por falta de pago) o a `EN_REVISION` (el proveedor informa un estado que no conocemos), y desde `VENCIDA` a `EN_REVISION` (el pago llegó después del vencimiento). `EN_REVISION` se resuelve a mano ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)). **Implementado** en `internal/service/ordenes.go`, donde el mapa `transicionesPermitidas` es la única fuente de verdad; la base solo conoce los cinco estados posibles. `VENCIDA` y `EN_REVISION` cuentan como **abiertas**, porque las dos necesitan que una persona intervenga: con una sin resolver, el ciclo no crea otra orden para ese producto. |
+| **RN-16** | La orden de reposición se dirige al proveedor con **menor costo total** para la cantidad a reponer (RN-01 a RN-05). **Implementado:** `internal/proveedores` consulta `GET /api/v1/proveedores/recomendados`, que devuelve el array ya ordenado por `costo_total` ascendente, y toma el primero. Si no responde, la orden se crea sin proveedor sugerido y con el motivo a la vista. |
 
 ### Importación y catálogo — parcial
 
@@ -194,12 +194,14 @@ productos, 170 ofertas) y se comprobaron contra el cálculo de RN-01 a RN-05.
 - **CA-13.1** *Dado* un stock de 10 y dos reservas simultáneas de 6, *entonces* una se acepta y la otra se rechaza; el stock nunca queda negativo (RN-13). Evidencia: `TestSinSobreventaConReservasSimultaneas` en `services/stock-service/internal/repository/concurrencia_integration_test.go`, **corrido en verde contra PostgreSQL 16 real** el 06/11: 20 reservas de 6 a la vez, 1 aceptada, 19 rechazadas por stock insuficiente, disponible final 4 y una sola fila en `reservas`. El test corre sobre la capa de datos, así que verifica el error de negocio, no el `409` del handler.
 - **CA-13.2** *Dado* la misma reserva repetida por un reintento, *entonces* se aplica una sola vez. Evidencia: `TestReservarEsIdempotente` y `TestReservarCarreraDeReintentosNoDuplicaElStock` en `internal/service/stock_test.go` (sin base), y `TestReintentosSimultaneosAplicanElStockUnaVez` en `internal/repository/concurrencia_integration_test.go`.
 
-#### HU-14 — Reponer automáticamente lo que baja del mínimo · propuesto
+#### HU-14 — Reponer automáticamente lo que baja del mínimo · implementado ([`services/stock-service`](services/stock-service/README.md))
 *Como operador de compras, quiero que el sistema detecte el faltante y proponga una orden con el proveedor más conveniente.*
 
-- **CA-14.1** *Dado* un producto cuyo stock baja de su mínimo, *entonces* se genera una orden en estado `BORRADOR` con el proveedor de menor costo total para la cantidad a reponer (RN-14, RN-16).
-- **CA-14.2** *Dado* una orden abierta para ese producto, *entonces* no se genera otra.
-- **CA-14.3** *Dado* una orden, *entonces* solo puede pasar a `SOLICITADA` desde `BORRADOR`; a `CONFIRMADA` o `VENCIDA` desde `SOLICITADA`; y a `EN_REVISION` desde `SOLICITADA` o `VENCIDA` (RN-15).
+Un ciclo interno de `stock-service` corre al arrancar y cada `INTERVALO_REPOSICION` (1 h por defecto): busca los SKUs con `disponible < minimo`, le pregunta a `proveedores-service` quién es el más barato y crea la orden en `BORRADOR`. La orden **no se envía**: pasarla a `SOLICITADA` es el pedido a FAV (HU-15), que todavía no está. Mientras tanto se opera con `POST /api/v1/stock/ordenes/{id}/transiciones`.
+
+- **CA-14.1** *Dado* un producto cuyo stock baja de su mínimo, *entonces* se genera una orden en estado `BORRADOR` con el proveedor de menor costo total para la cantidad a reponer (RN-14, RN-16). Evidencia: `TestCicloCreaOrdenParaElQueEstaBajoMinimo` en `internal/service/reposicion_test.go` y `TestSKUsBajoMinimoContraElSeed` en `internal/repository/ordenes_integration_test.go`, **corrido contra PostgreSQL 16 real**. La cantidad es `minimo × 2 − disponible`.
+- **CA-14.2** *Dado* una orden abierta para ese producto, *entonces* no se genera otra. Evidencia: `TestUnaSolaOrdenAbiertaPorSKU` (integración), que comprueba el índice único parcial `ux_ordenes_abierta_por_sku`: la invariante la garantiza la base, no solo la lógica. `TestOrdenNuevaDespuesDeConfirmada` verifica que sí se puede crear una nueva cuando la anterior se cerró.
+- **CA-14.3** *Dado* una orden, *entonces* solo puede pasar a `SOLICITADA` desde `BORRADOR`; a `CONFIRMADA` o `VENCIDA` desde `SOLICITADA`; y a `EN_REVISION` desde `SOLICITADA` o `VENCIDA` (RN-15). Evidencia: `TestTransicionesDeLaOrden` en `internal/service/ordenes_test.go`, un test de tabla sobre **las 25 combinaciones** de los cinco estados, que verifica las 5 válidas y rechaza las 20 restantes con `409 TRANSICION_INVALIDA`.
 
 #### HU-15 — Comprar al catálogo de ropa como a un proveedor más · parcial
 *Como operador de compras, quiero que el catálogo del grupo de ropa participe del ranking y del stock, para comparar sus precios con los demás.*
@@ -260,4 +262,5 @@ criterios de aceptación del sistema completo.
 | HU-11, HU-15 | RN-17 a RN-20 | `services/import-service` (parcial); evento en [`docs/contracts/eventos.md`](docs/contracts/eventos.md) |
 | HU-12 | RN-18 | fuera de alcance: [ADR-014](docs/adr/ADR-014-tres-servicios-sin-catalogo.md) |
 | HU-13 | RN-13 | `services/stock-service/internal/service` (regla y transacción), `internal/repository` (`SELECT … FOR UPDATE`), `migrations/001_init.sql`; [ADR-004](docs/adr/ADR-004-consistencia-y-concurrencia.md) |
-| HU-14, HU-16, HU-17 | RN-14 a RN-16 | sin código todavía; ver [ADR-001](docs/adr/ADR-001-limites-de-los-servicios.md) |
+| HU-14 | RN-14, RN-15, RN-16 | `services/stock-service/internal/service/reposicion.go` (ciclo y cantidad), `internal/service/ordenes.go` (máquina de estados), `internal/proveedores` (consulta del más barato), `migrations/003_ordenes_reposicion.sql` (índice único parcial); [ADR-005](docs/adr/ADR-005-comunicacion.md) |
+| HU-16, HU-17 | — | sin código todavía; ver [ADR-001](docs/adr/ADR-001-limites-de-los-servicios.md) |

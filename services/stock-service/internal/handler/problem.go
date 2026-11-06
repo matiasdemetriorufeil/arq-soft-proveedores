@@ -6,12 +6,15 @@ import (
 )
 
 // Códigos de error del contrato. Son los mismos de proveedores-service más
-// STOCK_INSUFICIENTE, que es propio de la reserva.
+// STOCK_INSUFICIENTE, que es propio de la reserva, y ORDEN_NO_ENCONTRADA y
+// TRANSICION_INVALIDA, que son propios de la orden de reposición (RN-15).
 const (
 	CodigoParametroInvalido    = "PARAMETRO_INVALIDO"
 	CodigoNoAutorizado         = "NO_AUTORIZADO"
 	CodigoProductoNoEncontrado = "PRODUCTO_NO_ENCONTRADO"
 	CodigoStockInsuficiente    = "STOCK_INSUFICIENTE"
+	CodigoOrdenNoEncontrada    = "ORDEN_NO_ENCONTRADA"
+	CodigoTransicionInvalida   = "TRANSICION_INVALIDA"
 	CodigoNoDisponible         = "NO_DISPONIBLE"
 	tipoProblemaBase           = "https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#"
 	contentTypeProblem         = "application/problem+json"
@@ -37,6 +40,8 @@ var titulos = map[string]string{
 	CodigoNoAutorizado:         "No autorizado",
 	CodigoProductoNoEncontrado: "Producto no encontrado",
 	CodigoStockInsuficiente:    "Stock insuficiente",
+	CodigoOrdenNoEncontrada:    "Orden de reposición no encontrada",
+	CodigoTransicionInvalida:   "Transición de estado inválida",
 	CodigoNoDisponible:         "Servicio no disponible",
 }
 

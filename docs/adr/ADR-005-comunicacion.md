@@ -1,7 +1,7 @@
 # ADR-005 — Comunicación entre servicios (D5)
 
-- **Estado:** aceptado e implementado para la comunicación síncrona `api-gateway → proveedores-service → PostgreSQL`, la llamada `import-service → FAV` y la **publicación** de `ListaPreciosActualizada` (RabbitMQ, outbox y confirmaciones); **propuesto** para el **consumo** del evento en `proveedores-service` (Integrante 2) y las llamadas de `stock-service`
-- **Fecha:** 2026-10-23 · actualizado 2026-11-03
+- **Estado:** aceptado e implementado para la comunicación síncrona `api-gateway → proveedores-service → PostgreSQL`, la llamada `import-service → FAV`, la llamada `stock-service → proveedores-service` (06/11) y la **publicación** de `ListaPreciosActualizada` (RabbitMQ, outbox y confirmaciones); **propuesto** para el **consumo** del evento en `proveedores-service` (Integrante 2) y las llamadas de `stock-service` a FAV. El evento `StockBajoMinimo` se **retiró** (ver abajo).
+- **Fecha:** 2026-10-23 · actualizado 2026-11-03 y 2026-11-06
 - **Entrega:** 2 (23/10), primera versión publicada (la inicial de la Entrega 1 no se presentó); actualización en la 3 (06/11).
 - **Decisión de la consigna:** D5. Uso de interacciones síncronas y asíncronas, tiempos de espera, reintentos, eventos e idempotencia.
 
@@ -38,9 +38,11 @@ Código: [`proxy.go`](../../services/api-gateway/internal/gateway/proxy.go), [`b
 - **Qué no se reintenta:** el timeout. La réplica puede estar procesando la request, y reintentar duplicaría la carga sobre una dependencia que ya está lenta.
 - **Propagación:** cada salto lleva `X-Request-ID` y `traceparent` (W3C), así que la misma request se sigue en los logs y en Jaeger ([ADR-011](ADR-011-observabilidad.md)).
 
-### Síncrono (propuesto)
+### Síncrono (`stock-service → proveedores-service`: implementado el 06/11)
 
-- `stock-service → proveedores-service`: `GET` de la misma capacidad por la red interna, con timeout de **1 s** y hasta **2 reintentos** con espera exponencial (100 ms y 300 ms) y jitter, porque es un `GET` idempotente. Si no responde, la orden de reposición queda en `BORRADOR` sin proveedor sugerido y se reintenta en el siguiente ciclo.
+- `stock-service → proveedores-service`: `GET` de la misma capacidad **por la red interna, directo a una réplica** (`PROVEEDORES_URL=http://proveedores-service-1:8080`) y **no por el gateway**, que es la puerta de los consumidores externos. Timeout de **1 s** por intento y hasta **2 reintentos** con espera de 100 ms y 300 ms más jitter, porque es un `GET` idempotente. Si no responde, la orden de reposición queda en `BORRADOR` **sin proveedor sugerido y con el motivo a la vista**, y el ciclo siguiente vuelve a intentarlo. Código: [`internal/proveedores/cliente.go`](../../services/stock-service/internal/proveedores/cliente.go).
+- **Qué no se reintenta:** `404` (el producto no existe para ningún proveedor) ni `401` (clave mal configurada). Ninguno es transitorio, así que reintentar solo suma latencia al ciclo.
+- **Una réplica fija es un punto único de falla aceptado:** si `proveedores-service-1` está caída, el ciclo no consulta la otra réplica y las órdenes se crean sin proveedor. Se acepta porque el faltante se detecta igual y la orden se reintenta; balancear acá exigiría meter el gateway en el camino o descubrir réplicas, que es lo que [ADR-012](ADR-012-balanceo-de-carga.md) resuelve solo para el tráfico de entrada.
 - `import-service → FAV` (catálogo, **implementado** en `internal/fav`) y `stock-service → FAV` (pedidos, propuesto): timeout de 3 s y hasta 3 reintentos solo ante timeout, `429`, `500` o `503`; los reintentos de un pedido repiten su `Idempotency-Key`. Detalle en [ADR-009](ADR-009-consumo-proveedor.md).
 
 ### Asíncrono (RabbitMQ: publicación implementada, consumo propuesto)
@@ -48,7 +50,17 @@ Código: [`proxy.go`](../../services/api-gateway/internal/gateway/proxy.go), [`b
 | Evento | Publica | Consume | Efecto |
 |---|---|---|---|
 | `ListaPreciosActualizada` | `import-service` | `proveedores-service` | Actualiza las ofertas de ese proveedor, invalida la caché ([ADR-007](ADR-007-cache.md)) y reindexa ([ADR-006](ADR-006-busqueda.md)). |
-| `StockBajoMinimo` | `stock-service` | `stock-service` (worker) | Crea la orden de reposición en `BORRADOR` con el proveedor recomendado. |
+
+**`StockBajoMinimo` se retiró al implementar HU-14** (06/11). La idea era que
+`stock-service` publicara que un producto cayó bajo el mínimo y un worker del
+**mismo servicio** lo consumiera para crear la orden. Construido, quedó claro que
+publicador y consumidor eran el mismo proceso sobre la misma base: la cola no
+desacoplaba nada —no hay un segundo interesado en el evento, ni una falla que
+sobrevivir, porque el ciclo vuelve a correr y el faltante sigue ahí— y en cambio
+sumaba un intermediario, una DLQ que operar y una tabla de eventos procesados.
+La orden se crea **síncrona**, en el mismo ciclo que detecta el faltante
+(`internal/service/reposicion.go`). El requisito 2.5 de la consigna (un evento
+publicado **y** consumido) lo cumple `ListaPreciosActualizada`.
 
 El formato, la topología y lo que tiene que hacer el consumidor están en [`docs/contracts/eventos.md`](../contracts/eventos.md); el código compartido por los dos lados, en [`pkg/mensajeria`](../../pkg/mensajeria/).
 
@@ -86,6 +98,7 @@ El webhook `pedido.actualizado` de FAV llega por HTTP a `stock-service`, directo
 ## Con qué lo medimos
 
 - **Timeouts vigentes**, verificados en el código y el compose del 23/10: 3 s en el gateway y 2 s por consulta en el servicio.
+- **`stock-service → proveedores-service`** (06/11, `go test ./internal/proveedores/ -cover`, con `httptest` y sin red real): **87,3 %** de cobertura del paquete. Los tests comprueban que el cliente toma el **primer** elemento del array como el más barato (el contrato lo devuelve ordenado por `costo_total` ascendente), que manda el `X-API-Key`, que reintenta ante `503` y acierta al segundo intento, que **no** reintenta un `404`, y que se rinde después de 3 intentos. El ciclo que lo usa se prueba aparte (`internal/service`, **78,2 %**): un fallo del cliente deja la orden en `BORRADOR` sin proveedor en lugar de perder el faltante.
 - **Comportamiento ante fallas y bajo carga** (réplica caída, base caída o pausada, errores por código bajo carga): ver [ADR-010](ADR-010-resiliencia.md) y [ADR-013](ADR-013-capacidad-y-costos.md).
 - **Publicación, contra RabbitMQ real** (03/11, tests de `services/import-service/internal/integracion/` corridos contra un RabbitMQ 3.12 local; el compose usa 4.1, con la misma semántica de colas quorum y `x-delivery-limit`): el broker confirma el mensaje y llega persistente con `message_id` = `evento_id`; un `nack` sin reencolar lo manda a la DLQ; después de **3** entregas reencoladas también; un mensaje que el broker devuelve por no tener cola (`mandatory`) **no** se marca como publicado; sin broker, publicar falla en menos de 6 s sin colgarse.
 - **Outbox** (tests unitarios de `internal/sincronizacion`): con el broker caído, dos sincronizaciones dejan **2** eventos pendientes y, al volver, se publican los **2 en orden** de secuencia.
