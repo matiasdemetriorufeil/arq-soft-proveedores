@@ -59,8 +59,23 @@ type Mock struct {
 	mu       sync.Mutex
 	modo     string
 	catalogo []producto
-	pedidos  int
+	pedidos  int // pedidos del catálogo (GET /v1/productos), para /_mock/estado
+
+	// Pedidos de compra (pedidos.go).
+	secreto  string                       // secreto de avisos con el que se firma el webhook
+	stock    map[string]int               // stock por variante; el contrato no lo publica
+	compras  map[string]*pedido           // por pedidoId
+	idem     map[string]respuestaGuardada // por Idempotency-Key
+	avisos   []AvisoEnviado               // los últimos avisos enviados, para /_mock/estado
+	clienteW *http.Client                 // el que envía los webhooks
 }
+
+// SecretoDeAvisosPorDefecto es el que usa el mock de FAV en su repositorio
+// (lo dice su contrato), así el vector de prueba del contrato vale también acá.
+const SecretoDeAvisosPorDefecto = "secreto-de-prueba"
+
+// StockInicialPorVariante es cuántas unidades tiene cada variante al arrancar.
+const StockInicialPorVariante = 30
 
 // Nuevo arma el mock con el catálogo de ejemplo y la clave que acepta.
 func Nuevo(clave string) (*Mock, error) {
@@ -70,13 +85,36 @@ func Nuevo(clave string) (*Mock, error) {
 	if err := json.Unmarshal(catalogoInicial, &cat); err != nil {
 		return nil, fmt.Errorf("catálogo del mock: %w", err)
 	}
-	return &Mock{clave: clave, modo: ModoNormal, catalogo: cat.Items}, nil
+	m := &Mock{
+		clave: clave, modo: ModoNormal, catalogo: cat.Items,
+		secreto:  SecretoDeAvisosPorDefecto,
+		stock:    map[string]int{},
+		compras:  map[string]*pedido{},
+		idem:     map[string]respuestaGuardada{},
+		avisos:   []AvisoEnviado{},
+		clienteW: &http.Client{Timeout: 5 * time.Second},
+	}
+	for _, p := range cat.Items {
+		for _, v := range p.Variantes {
+			m.stock[v.VarianteID] = StockInicialPorVariante
+		}
+	}
+	return m, nil
+}
+
+// UsarSecretoDeAvisos cambia el secreto con el que se firman los webhooks.
+func (m *Mock) UsarSecretoDeAvisos(secreto string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.secreto = secreto
 }
 
 // Handler devuelve las rutas del mock.
 func (m *Mock) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/productos", m.listarProductos)
+	mux.HandleFunc("POST /v1/pedidos", m.crearPedido)
+	mux.HandleFunc("GET /v1/pedidos/{pedidoId}", m.consultarPedido)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	// La sonda del contenedor pregunta por /readyz, igual que en los servicios.
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
@@ -84,6 +122,8 @@ func (m *Mock) Handler() http.Handler {
 	mux.HandleFunc("GET /_mock/estado", m.estado)
 	mux.HandleFunc("POST /_mock/modo", m.cambiarModo)
 	mux.HandleFunc("POST /_mock/precio", m.cambiarPrecio)
+	mux.HandleFunc("POST /_mock/stock", m.cambiarStock)
+	mux.HandleFunc("POST /_mock/pedidos/{pedidoId}/estado", m.cambiarEstadoPedido)
 	return mux
 }
 
@@ -111,31 +151,43 @@ func (m *Mock) listarProductos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if modo == ModoInvalido {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"productos":"esto no es el contrato"}`))
+		return
+	}
+	if !aplicarModo(w, r, modo) {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(cuerpo)
+}
+
+// aplicarModo responde la falla del modo activo y devuelve false, o espera
+// (modo lento) y devuelve true para que la ruta siga con la respuesta normal.
+// El modo inválido lo resuelve cada ruta, porque el cuerpo fuera de contrato
+// es distinto en cada una.
+func aplicarModo(w http.ResponseWriter, r *http.Request, modo string) bool {
 	switch modo {
 	case ModoCaido:
 		w.Header().Set("Retry-After", "5")
 		problema(w, http.StatusServiceUnavailable, "no-disponible", "Servicio no disponible", "NO_DISPONIBLE")
-		return
+		return false
 	case ModoLimite:
 		w.Header().Set("Retry-After", "2")
 		problema(w, http.StatusTooManyRequests, "limite-excedido", "Límite excedido", "LIMITE_EXCEDIDO")
-		return
+		return false
 	case ModoError:
 		problema(w, http.StatusInternalServerError, "error-interno", "Error interno", "ERROR_INTERNO")
-		return
-	case ModoInvalido:
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"productos":"esto no es el contrato"}`))
-		return
+		return false
 	case ModoLento:
 		select {
 		case <-r.Context().Done():
-			return
+			return false
 		case <-time.After(DemoraLenta):
 		}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(cuerpo)
+	return true
 }
 
 func problema(w http.ResponseWriter, status int, tipo, titulo, codigo string) {
@@ -153,7 +205,10 @@ func (m *Mock) estado(w http.ResponseWriter, _ *http.Request) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"modo": m.modo, "pedidos_de_catalogo": m.pedidos, "productos": len(m.catalogo)})
+	json.NewEncoder(w).Encode(map[string]any{
+		"modo": m.modo, "pedidos_de_catalogo": m.pedidos, "productos": len(m.catalogo),
+		"pedidos_de_compra": len(m.compras), "avisos": m.avisos,
+	})
 }
 
 func (m *Mock) cambiarModo(w http.ResponseWriter, r *http.Request) {

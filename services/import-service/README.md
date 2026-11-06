@@ -94,15 +94,23 @@ docker run --rm --network arq-soft-proveedores_interna curlimages/curl -s -X POS
 
 ## Mock de FAV
 
-`cmd/fav-mock` sirve `GET /v1/productos` con 5 productos y 10 variantes, y exige
-la misma clave que `FAV_API_KEY`. Cumple el contrato v1.1.0 de FAV: lo comprueba
-el test de contrato. Rutas de control (no son parte del contrato de FAV):
+`cmd/fav-mock` sirve `GET /v1/productos` con 5 productos y 10 variantes, y
+también los pedidos que le hace `stock-service`: `POST /v1/pedidos` (con
+`Idempotency-Key`, todo o nada, hasta 10 unidades por variante) y
+`GET /v1/pedidos/{pedidoId}`. A diferencia del mock que publica FAV, guarda el
+estado de cada pedido y manda el webhook firmado a su `notificacionUrl`. Exige
+la misma clave que `FAV_API_KEY` y firma con `FAV_MOCK_SECRETO_AVISOS` (en el
+compose, el mismo `FAV_SECRETO_AVISOS` que verifica `stock-service`). Cumple el
+contrato v1.1.0 de FAV: lo comprueban los tests de contrato. Rutas de control
+(no son parte del contrato de FAV):
 
 | Ruta | Para qué |
 |---|---|
 | `POST /_mock/modo` `{"modo": "..."}` | `normal`, `caido` (503), `lento` (5 s, más que el timeout), `limite` (429), `error` (500), `invalido` (200 fuera de contrato) |
 | `POST /_mock/precio` `{"varianteId": "...", "precio": 1}` | Cambia un precio, para ver el cambio llegar en el evento siguiente |
-| `GET /_mock/estado` | Modo actual y cuántas veces le pidieron el catálogo |
+| `POST /_mock/pedidos/{pedidoId}/estado` `{"estado": "PAGADO"}` | Simula que FAV verificó el pago (`PAGADO`), que venció (`VENCIDO`) o que el pago llegó tarde (`A_VERIFICAR`), y manda el aviso. `"duplicar": true` lo manda dos veces; `"firmaInvalida": true` lo firma con otro secreto |
+| `POST /_mock/stock` `{"varianteId": "...", "stock": 0}` | Fija el stock de una variante, para forzar un `409 STOCK_INSUFICIENTE` |
+| `GET /_mock/estado` | Modo actual, cuántas veces le pidieron el catálogo, cuántos pedidos tiene y los últimos avisos enviados con su respuesta |
 
 En el compose se publica en `localhost:8090`.
 
@@ -114,6 +122,12 @@ go test -tags=integration ./internal/adapters/mongo/ -v      # MongoDB real (Doc
 go test -tags=integration ./internal/integracion/ -v         # RabbitMQ real (Docker)
 ```
 
+- **Test de contrato de los pedidos del mock** (`internal/fav/contrato_pedidos_test.go`):
+  cada respuesta de `POST /v1/pedidos` y `GET /v1/pedidos/{pedidoId}` (201, la
+  misma respuesta ante la misma clave, 409 por clave reutilizada y por stock,
+  400, 404 y 503) y cada webhook (cuerpo `EventoPedido`, formato y firma de
+  `X-FAV-Firma`, `X-FAV-Evento-Id`) validan contra el contrato de FAV, y el
+  vector de firma del contrato coincide.
 - **Test de contrato** (`internal/fav/contrato_test.go`): valida contra la copia
   del OpenAPI de FAV que nuestro cliente entiende su ejemplo, que nuestra request
   cumple el contrato y que el mock responde según el contrato. Contra el FAV

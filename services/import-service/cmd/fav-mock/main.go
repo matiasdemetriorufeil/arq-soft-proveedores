@@ -4,6 +4,14 @@
 //	curl -X POST localhost:8090/_mock/modo -d '{"modo":"caido"}'
 //
 // Modos: normal, caido, lento, limite, error, invalido.
+//
+// Pedidos (los que hace stock-service): simular que FAV verificó el pago, o
+// que venció, y enviar el aviso firmado a la notificacionUrl del pedido:
+//
+//	curl -X POST localhost:8090/_mock/pedidos/<pedidoId>/estado -d '{"estado":"PAGADO"}'
+//
+// FAV_MOCK_SECRETO_AVISOS es el secreto con el que se firman los avisos (el
+// mismo que FAV_SECRETO_AVISOS de stock-service); por defecto, el del contrato.
 package main
 
 import (
@@ -31,6 +39,9 @@ func main() {
 	if err != nil {
 		log.Error("no se pudo armar el mock", "error", err.Error())
 		os.Exit(1)
+	}
+	if s := strings.TrimSpace(os.Getenv("FAV_MOCK_SECRETO_AVISOS")); s != "" {
+		m.UsarSecretoDeAvisos(s)
 	}
 	srv := &http.Server{
 		Addr:              ":" + puerto,
