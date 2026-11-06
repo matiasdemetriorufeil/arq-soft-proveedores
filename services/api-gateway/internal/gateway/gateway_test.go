@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -697,5 +699,92 @@ func TestLosErroresDelServicioPasanTalCual(t *testing.T) {
 	}
 	if !bal.Instancias()[0].Sana() {
 		t.Error("un 404 del contrato no es una réplica caída")
+	}
+}
+
+// --- búsqueda y transporte ---------------------------------------------------
+
+func TestBusquedaSeReenviaIgualQueLaCapacidad(t *testing.T) {
+	r := nuevaReplica(t, opcionesReplica{cuerpo: `{"resultados":[],"total":0,"pagina":1,"tamanio":20}`})
+	h, _ := armarGateway(t, opcionesGateway{upstream: []string{r.url()}})
+
+	destino := rutaBusqueda + "?q=buzo&categoria=x%22&pagina=2"
+	rec := pedir(h, destino, conAPIKeyValida())
+
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"total":0`) {
+		t.Fatalf("status = %d, cuerpo = %s", rec.Code, rec.Body)
+	}
+	ultima := r.ultima.Load()
+	if ultima.url != destino {
+		t.Errorf("le llegó %q, quiero %q: la query tiene que viajar tal cual", ultima.url, destino)
+	}
+	if ultima.headers.Get(headerAPIKey) != apiKeyValida {
+		t.Error("la réplica también exige la API key")
+	}
+}
+
+func TestBusquedaExigeAPIKeyYNoLlegaAlUpstream(t *testing.T) {
+	r := nuevaReplica(t, opcionesReplica{})
+	h, _ := armarGateway(t, opcionesGateway{upstream: []string{r.url()}})
+	if rec := pedir(h, rutaBusqueda+"?q=buzo", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d", rec.Code)
+	}
+	if r.recibidas.Load() != 0 {
+		t.Error("no tenía que llegar a la réplica")
+	}
+}
+
+func TestBusquedaSoloGET(t *testing.T) {
+	r := nuevaReplica(t, opcionesReplica{})
+	h, _ := armarGateway(t, opcionesGateway{upstream: []string{r.url()}})
+	req := httptest.NewRequest(http.MethodPost, rutaBusqueda, nil)
+	req.Header.Set(headerAPIKey, apiKeyValida)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK || r.recibidas.Load() != 0 {
+		t.Errorf("status = %d, recibidas = %d", rec.Code, r.recibidas.Load())
+	}
+}
+
+// El límite que medimos en ADR-013 era este número: con el de DefaultTransport
+// (2), casi cada request abre una conexión TCP.
+func TestTransporteConPoolAcordeALaConcurrencia(t *testing.T) {
+	tr := nuevoTransporte()
+	if tr.MaxIdleConnsPerHost < 256 || tr.MaxIdleConns < 2*tr.MaxIdleConnsPerHost {
+		t.Errorf("MaxIdleConnsPerHost = %d, MaxIdleConns = %d", tr.MaxIdleConnsPerHost, tr.MaxIdleConns)
+	}
+	if tr == http.DefaultTransport {
+		t.Error("no puede modificar el transporte global")
+	}
+	if http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost == tr.MaxIdleConnsPerHost {
+		t.Error("cambió el transporte global")
+	}
+}
+
+func TestLasRequestsReusanLaConexionHaciaLaReplica(t *testing.T) {
+	var conexiones atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, estado http.ConnState) {
+		if estado == http.StateNew {
+			conexiones.Add(1)
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+
+	h, _ := armarGateway(t, opcionesGateway{upstream: []string{srv.URL}})
+	antes := conexiones.Load()
+	// Más requests simultáneas que las 2 ociosas de DefaultTransport, varias veces.
+	for range 5 {
+		var wg sync.WaitGroup
+		for range 20 {
+			wg.Go(func() { pedir(h, rutaDePrueba, conAPIKeyValida()) })
+		}
+		wg.Wait()
+	}
+	if abiertas := conexiones.Load() - antes; abiertas > 40 {
+		t.Errorf("se abrieron %d conexiones para 100 requests: no se están reusando", abiertas)
 	}
 }
