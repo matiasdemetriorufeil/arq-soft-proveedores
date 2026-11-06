@@ -1,6 +1,6 @@
 # ADR-010 — Resiliencia (D10)
 
-- **Estado:** aceptado e implementado para `api-gateway`, `proveedores-service` (timeouts, salida del reparto por salud, reintento acotado, error inmediato ante la base caída, telemetría opcional) e `import-service` (circuit breaker, reintentos y última importación válida frente a FAV; outbox frente a RabbitMQ); **propuesto** para los pedidos a FAV, la caché como respaldo y el límite de tráfico en el gateway
+- **Estado:** aceptado e implementado para `api-gateway`, `proveedores-service` (timeouts, salida del reparto por salud, reintento acotado, error inmediato ante la base caída, telemetría opcional) e `import-service` (circuit breaker, reintentos y última importación válida frente a FAV; outbox frente a RabbitMQ); y `stock-service` (timeout, reintentos con la misma `Idempotency-Key` y consulta de respaldo en los pedidos a FAV, 06/11); **propuesto** para la caché como respaldo y el límite de tráfico en el gateway
 - **Fecha:** 2026-10-23
 - **Entrega:** 2 (23/10)
 - **Decisión de la consigna:** D10. Comportamiento ante fallas y mecanismos seleccionados para limitar su propagación o degradar el sistema de manera controlada.
@@ -35,7 +35,7 @@ El riesgo particular de nuestro sistema es que la capacidad la consume **otro gr
 | `import-service` | catálogo de FAV (tienda de ropa) | hasta 3 reintentos y, tras 3 sincronizaciones fallidas, **circuit breaker** abierto durante las 3 vueltas siguientes (17 min 30 s con el intervalo de 5 min); el ranking sigue con la última importación válida, hasta 24 h, y después se retiran sus ofertas | timeout de 3 s por intento; cuenta como falla | implementado ([ADR-009](ADR-009-consumo-proveedor.md)) |
 | `import-service` | RabbitMQ | los eventos esperan en el **outbox** (MongoDB) y se publican en orden cada 15 s cuando vuelve; `/readyz` sigue en 200 | confirmación con timeout de 5 s; si no llega, el evento queda pendiente | implementado ([ADR-005](ADR-005-comunicacion.md)) |
 | `import-service` | MongoDB | `/readyz` en 503 y la sincronización no avanza (no tiene dónde guardar); la capacidad publicada no se entera | timeout de 3 s por operación | implementado |
-| `stock-service` | pedidos de FAV | la orden de reposición queda en `BORRADOR`; los reintentos técnicos repiten su `Idempotency-Key` | timeout de 3 s; un aviso perdido lo recupera la consulta cada 15 min | propuesto ([ADR-009](ADR-009-consumo-proveedor.md)) |
+| `stock-service` | pedidos de FAV | la orden de reposición queda en `BORRADOR` con el motivo a la vista y se reintenta cada 15 min con la misma `Idempotency-Key`; un aviso perdido lo recupera la consulta de respaldo; la reserva y la capacidad publicada no se enteran. **Sin circuit breaker** (solo el catálogo lo tiene) | timeout de 3 s por intento y hasta 3 reintentos (`429`, `500`, `503`, red), respetando `Retry-After` | implementado ([ADR-009](ADR-009-consumo-proveedor.md)) |
 
 Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.md), y la salida del reparto por salud, en [ADR-012](ADR-012-balanceo-de-carga.md).
 
