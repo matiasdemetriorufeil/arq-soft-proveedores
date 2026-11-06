@@ -22,16 +22,22 @@ const (
 func TestMigracionesYSeed(t *testing.T) {
 	ctx := context.Background()
 
-	// El seed trae los 30 SKUs de proveedores-service. Se cuentan excluyendo
-	// los SKUs TEST-* que crean los otros tests de este paquete.
-	var n int
+	// El seed trae los 30 SKUs de proveedores-service (002_seed.sql) y 3
+	// prendas de FAV (004_pedidos_fav.sql). Se cuentan excluyendo los SKUs
+	// TEST-* y FAV-TEST-* que crean los otros tests de este paquete.
+	var n, prendas int
 	if err := poolCompartido.QueryRow(ctx,
-		`SELECT count(*) FROM stock_productos WHERE sku NOT LIKE 'TEST-%'`).
-		Scan(&n); err != nil {
+		`SELECT count(*) FILTER (WHERE sku NOT LIKE 'FAV-%'),
+		        count(*) FILTER (WHERE sku LIKE 'FAV-var-%')
+		 FROM stock_productos WHERE sku NOT LIKE 'TEST-%'`).
+		Scan(&n, &prendas); err != nil {
 		t.Fatalf("contar el seed: %v", err)
 	}
 	if n != 30 {
 		t.Errorf("el seed dejó %d SKUs; se esperaban los 30 de 002_seed.sql", n)
+	}
+	if prendas != 3 {
+		t.Errorf("el seed dejó %d prendas de FAV; se esperaban las 3 de 004_pedidos_fav.sql", prendas)
 	}
 
 	// Migrar es idempotente: se reaplica entero en cada arranque.

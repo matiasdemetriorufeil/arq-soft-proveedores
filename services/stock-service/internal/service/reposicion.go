@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/fav"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/proveedores"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/repository"
 )
@@ -86,6 +87,11 @@ func (s *ServicioOrdenes) reponerSKU(ctx context.Context, st repository.Stock, r
 	}
 
 	cantidad := cantidadAReponer(st)
+	if EsSKUDeFAV(st.SKU) && cantidad > fav.MaxUnidadesPorVariante {
+		// FAV acepta hasta 10 unidades por variante en un pedido: se repone
+		// eso, y lo que falte lo pide el ciclo siguiente.
+		cantidad = fav.MaxUnidadesPorVariante
+	}
 	id, err := nuevoUUID()
 	if err != nil {
 		res.Fallidas++
@@ -104,6 +110,15 @@ func (s *ServicioOrdenes) reponerSKU(ctx context.Context, st repository.Stock, r
 	// no se puede saber quién es, la orden se crea igual —el faltante existe
 	// aunque proveedores-service esté caído— sin proveedor y con el motivo a la
 	// vista, y el ciclo siguiente vuelve a intentarlo.
+	//
+	// Una prenda de FAV solo la vende FAV (ADR-009): el proveedor es FAV sin
+	// preguntar, y la orden sale como pedido a FAV.
+	if EsSKUDeFAV(st.SKU) && s.favID != 0 {
+		provID, nombre := s.favID, s.favNombre
+		orden.ProveedorID, orden.ProveedorNombre = &provID, &nombre
+		s.crearOrden(ctx, &orden, res)
+		return
+	}
 	rec, err := s.prov.MasBarato(ctx, st.SKU, cantidad)
 	if err != nil {
 		motivo := motivoSinProveedor(err)
@@ -117,7 +132,12 @@ func (s *ServicioOrdenes) reponerSKU(ctx context.Context, st repository.Stock, r
 		orden.CostoTotal = &costo
 	}
 
-	switch err := s.repo.CrearOrden(ctx, &orden); {
+	s.crearOrden(ctx, &orden, res)
+}
+
+// crearOrden graba la orden y acumula el resultado en el resumen.
+func (s *ServicioOrdenes) crearOrden(ctx context.Context, orden *repository.Orden, res *Resumen) {
+	switch err := s.repo.CrearOrden(ctx, orden); {
 	case err == nil:
 		res.Creadas++
 	case errors.Is(err, repository.ErrOrdenAbiertaExistente):
@@ -129,7 +149,7 @@ func (s *ServicioOrdenes) reponerSKU(ctx context.Context, st repository.Stock, r
 		}
 	default:
 		res.Fallidas++
-		res.Problemas = append(res.Problemas, fmt.Sprintf("%s: %v", st.SKU, err))
+		res.Problemas = append(res.Problemas, fmt.Sprintf("%s: %v", orden.SKU, err))
 		if orden.Motivo != nil {
 			res.SinProveedor--
 		}

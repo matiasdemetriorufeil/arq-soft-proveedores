@@ -188,3 +188,35 @@ func TestCicloSinClienteEstaApagado(t *testing.T) {
 		t.Errorf("error = %v; se esperaba ErrReposicionDeshabilitada", err)
 	}
 }
+
+// TestCicloPrendaDeFAV: una prenda de FAV solo la vende FAV (ADR-009), así que
+// la orden va a FAV sin preguntar el ranking, y nunca pide más de las 10
+// unidades por variante que acepta su contrato.
+func TestCicloPrendaDeFAV(t *testing.T) {
+	repo := nuevoRepoOrdenesFalso()
+	repo.bajoMinimo = []repository.Stock{
+		{SKU: "FAV-var-remera-basica-blanca-m", Disponible: 2, Minimo: 5}, // 5 × 2 − 2 = 8
+		{SKU: "FAV-var-jean-mom-celeste-38", Disponible: 0, Minimo: 30},   // 60, se recorta a 10
+	}
+	cliente := &clienteFalso{rec: masBarato}
+	svc := service.NuevoServicioOrdenes(repo, cliente)
+	svc.UsarProveedorFAV(11, "FAV (tienda de ropa)")
+
+	res, err := svc.CicloDeReposicion(context.Background())
+	if err != nil || res.Creadas != 2 || res.SinProveedor != 0 {
+		t.Fatalf("resumen = %+v, err = %v; se esperaban 2 creadas con proveedor", res, err)
+	}
+	if len(cliente.llamadas) != 0 {
+		t.Errorf("se le preguntó a proveedores-service por %v; una prenda de FAV no compite en el ranking", cliente.llamadas)
+	}
+	cantidades := map[string]int{}
+	for _, o := range repo.creadas {
+		cantidades[o.SKU] = o.Cantidad
+		if o.ProveedorID == nil || *o.ProveedorID != 11 || o.Motivo != nil {
+			t.Errorf("orden %s: proveedor %v, motivo %v; quiero FAV (11) sin motivo", o.SKU, o.ProveedorID, o.Motivo)
+		}
+	}
+	if cantidades["FAV-var-remera-basica-blanca-m"] != 8 || cantidades["FAV-var-jean-mom-celeste-38"] != 10 {
+		t.Errorf("cantidades = %v; quiero 8 y 10 (el tope de FAV por variante)", cantidades)
+	}
+}

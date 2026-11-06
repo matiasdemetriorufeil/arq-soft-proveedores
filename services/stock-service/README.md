@@ -1,16 +1,17 @@
 # stock-service
 
-Servicio en Go que administra el **stock propio**. Hace dos cosas:
+Servicio en Go que administra el **stock propio**. Hace tres cosas:
 
 1. **Reservar unidades sin sobreventa** (HU-13, RN-13). La garantía la da PostgreSQL: la reserva corre dentro de una transacción que bloquea la fila del SKU con `SELECT … FOR UPDATE`, y es idempotente por `Idempotency-Key`.
 2. **Reponer lo que baja del mínimo** (HU-14, RN-14 a RN-16). Un ciclo interno busca los SKUs por debajo de su mínimo, le pregunta a `proveedores-service` quién es el más barato y crea una orden de reposición en `BORRADOR`, una sola abierta por producto.
+3. **Comprarle a FAV** (HU-15, [ADR-009](../../docs/adr/ADR-009-consumo-proveedor.md)). Cuando la que baja del mínimo es una prenda de FAV (`FAV-<varianteId>`), la orden le hace el pedido a FAV con `Idempotency-Key`, pasa a `SOLICITADA` y sigue su estado por el **webhook firmado** que manda FAV y por una consulta de respaldo. Cuando FAV confirma el pago, la orden pasa a `CONFIRMADA` y las unidades entran al stock.
 
 - **Arquitectura en capas** (handler → service → repository), distinta a propósito de la hexagonal de `proveedores-service`. Ver [ADR-002](../../docs/adr/ADR-002-arquitectura-interna.md).
 - Consistencia y concurrencia: [ADR-004](../../docs/adr/ADR-004-consistencia-y-concurrencia.md). Comunicación entre servicios: [ADR-005](../../docs/adr/ADR-005-comunicacion.md).
 - Almacenamiento: PostgreSQL, **base `stock` con su propio usuario** ([ADR-003](../../docs/adr/ADR-003-persistencia.md)). Las migraciones están embebidas en el binario y se aplican al arrancar.
 - Logs JSON (`log/slog`) correlacionados con `X-Request-ID` y `trace_id`; trazas OpenTelemetry con un span por consulta a Postgres.
 
-Lo que **no** hace (todavía): **enviarle el pedido a FAV**. La orden se queda en `BORRADOR`; pasarla a `SOLICITADA` es llamar a `POST /v1/pedidos` de FAV, y eso —junto con el receptor del webhook— es lo que falta ([ADR-009](../../docs/adr/ADR-009-consumo-proveedor.md)). Mientras tanto las transiciones se operan a mano por la API. Tampoco está publicado en el `api-gateway`: por ahora solo se lo alcanza desde la red interna.
+Lo que **no** hace (todavía): **no está publicado en el `api-gateway`**: por ahora solo se lo alcanza desde la red interna. Las órdenes de productos que no son de FAV se quedan en `BORRADOR` y se operan a mano por la API, porque esos proveedores no tienen una API para comprarles. Los pedidos a FAV no tienen circuit breaker y prueban contra nuestro mock, porque FAV todavía no publicó su URL (ver *Pendiente* en ADR-009).
 
 ## Estructura
 
@@ -21,7 +22,8 @@ internal/handler/      HTTP: validación, API key, request log, problem+json, he
 internal/service/      negocio: dueño de la transacción, de "sin sobreventa" y de las transiciones de la orden
 internal/repository/   datos: pool pgx, SELECT … FOR UPDATE, migraciones, span por consulta
 internal/proveedores/  cliente HTTP de proveedores-service: timeout 1 s, 2 reintentos, traducción de errores
-migrations/            001_init.sql, 002_seed.sql (30 SKUs de demo) y 003_ordenes_reposicion.sql, embebidos
+internal/fav/          cliente de pedidos de FAV (timeout 3 s, 3 reintentos con la misma clave) y verificación de la firma del webhook
+migrations/            001_init.sql, 002_seed.sql (30 SKUs de demo), 003_ordenes_reposicion.sql y 004_pedidos_fav.sql (pedido de la orden, avisos recibidos y 3 prendas de FAV), embebidos
 ```
 
 La dependencia va en un solo sentido: `handler → service → repository`. **`repository` es el único paquete que importa `pgx`** y el único que escribe SQL; `service` solo ve el tipo opaco `repository.Tx`, que recibe y vuelve a pasar sin poder ejecutar nada con él.
@@ -44,7 +46,8 @@ return s.repo.EnTransaccion(ctx, func(tx repository.Tx) error {
 |---|---|---|
 | `stock_productos` | `sku` PK, `disponible` ≥ 0, `reservado` ≥ 0, `minimo`, `actualizado_en` | es la fila que se bloquea al reservar. El `CHECK (disponible >= 0)` es la última red: aunque falle la lógica, la sobreventa no entra |
 | `reservas` | `id` UUID PK, `sku` FK, `cantidad` > 0, `clave_idempotencia` **UNIQUE**, `estado`, `creado_en` | el `UNIQUE` es lo que hace idempotente a la operación ante dos reintentos simultáneos |
-| `ordenes_reposicion` | `id` UUID PK, `sku` FK, `cantidad` > 0, `estado`, `proveedor_id`/`proveedor_nombre`/`costo_total` (los tres anulables), `motivo`, `intento`, `creado_en`, `actualizado_en` | el índice **parcial** `ux_ordenes_abierta_por_sku ON (sku) WHERE estado <> 'CONFIRMADA'` garantiza una sola orden abierta por producto (CA-14.2), incluso si dos réplicas corren el ciclo a la vez |
+| `ordenes_reposicion` | `id` UUID PK, `sku` FK, `cantidad` > 0, `estado`, `proveedor_id`/`proveedor_nombre`/`costo_total` (los tres anulables), `motivo`, `intento`, `creado_en`, `actualizado_en`, y el pedido a FAV: `clave_pedido`, `pedido_id` (único), `pedido_estado`, `pedido_total`, `pago_vence_en` | el índice **parcial** `ux_ordenes_abierta_por_sku ON (sku) WHERE estado <> 'CONFIRMADA'` garantiza una sola orden abierta por producto (CA-14.2), incluso si dos réplicas corren el ciclo a la vez. `clave_pedido` es la `Idempotency-Key` del intento en curso, `<id>-<intento>`: los reintentos la repiten y se renueva después de un rechazo definitivo |
+| `avisos_fav_procesados` | `evento_id` UUID PK, `pedido_id`, `estado`, `recibido_en` | la PRIMARY KEY deduplica los avisos del webhook: el mismo `eventoId` se procesa una sola vez aunque llegue dos veces a la vez |
 
 ### Máquina de estados de la orden (RN-15)
 
@@ -68,6 +71,12 @@ Las otras 20 combinaciones se rechazan con `409 TRANSICION_INVALIDA`. **`VENCIDA
 | `PROVEEDORES_URL` | no | Base de `proveedores-service`, por ejemplo `http://proveedores-service-1:8080`. **Va directo a una réplica, no al gateway** ([ADR-005](../../docs/adr/ADR-005-comunicacion.md)). **Si falta, el ciclo de reposición queda apagado** con un aviso en el log: la reserva y las consultas de órdenes siguen funcionando. |
 | `PROVEEDORES_API_KEY` | no | Clave con la que se consulta esa capacidad. Tiene que estar en el `API_KEYS` de `proveedores-service`. |
 | `INTERVALO_REPOSICION` | no | Cada cuánto corre el ciclo. Por defecto `1h`, **mínimo `10s`** (para la demo). Un valor que no sea una duración de Go, o menor al mínimo, impide el arranque. |
+| `FAV_URL` | no | Base de la API de FAV (en el compose, `http://fav-mock:8090` si no se define). **Va directo a FAV, nunca por el gateway.** Sin ella, los pedidos quedan apagados y las órdenes de prendas de FAV esperan en `BORRADOR`. |
+| `FAV_API_KEY` | si hay `FAV_URL` | Clave que nos dio FAV (`X-API-Key`). |
+| `FAV_SECRETO_AVISOS` | si hay `FAV_NOTIFICACION_URL` | Secreto con el que se verifica la firma del webhook. **Sin él, la ruta `/webhooks/fav` no existe.** |
+| `FAV_NOTIFICACION_URL` | no | Nuestro receptor tal como lo alcanza FAV; va en cada pedido como `notificacionUrl`. Con el mock, `http://stock-service:8080/webhooks/fav`. Vacía: los pedidos salen sin avisos y el estado se sigue solo con la consulta de respaldo. |
+| `FAV_PROVEEDOR_ID` | no | Id de FAV en la tabla de proveedores. Por defecto `11`. |
+| `INTERVALO_PEDIDOS_FAV` | no | Cada cuánto se reintentan los pedidos pendientes y se consulta el estado de los abiertos. Por defecto `15m`, mínimo `10s`. |
 
 ## Cómo correrlo
 
@@ -128,6 +137,9 @@ Lo que cubren:
 - `TestSinSobreventaConReservasSimultaneas` — **la evidencia de CA-13.1**: disponible 10 y 20 reservas de 6 lanzadas a la vez; exactamente 1 aceptada, 19 rechazadas con `ErrStockInsuficiente` (es un test de la capa de datos: el `409` lo pone el handler, que acá no participa), disponible final 4 y reservado 6.
 - `TestReintentosSimultaneosAplicanElStockUnaVez` — 20 reintentos simultáneos de la **misma** clave de idempotencia devuelven la misma reserva y mueven el stock una sola vez (CA-13.2).
 - Migraciones y seed, `StockPorSKU`, `Ping`, el camino completo de la reserva, la detección del `UNIQUE` de la clave de idempotencia y el `CHECK (disponible >= 0)` de la base.
+- Pedidos a FAV (`pedidos_integration_test.go`): la clave `<id>-<intento>` se mantiene en los reintentos y cambia después de un rechazo; 20 entregas simultáneas del mismo aviso registran 1; 10 confirmaciones simultáneas de la misma orden (webhook y respaldo a la vez) suman el stock **una sola vez**; un fallo después de mover la orden deshace también el stock.
+
+**Test de contrato con FAV** (`internal/fav/contrato_test.go`, corre con `go test ./...`): valida contra la copia del OpenAPI de FAV v1.1.0 (`docs/contracts/consumidos/`) que nuestro `POST /v1/pedidos` y nuestro `GET /v1/pedidos/{id}` cumplen el contrato, que el cliente entiende sus ejemplos y sus errores, y que el receptor acepta su vector de prueba de la firma. Las respuestas y los avisos del mock se validan contra el mismo contrato en `services/import-service/internal/fav/contrato_pedidos_test.go`.
 
 Si falla con `reaper: ... "Started" matched 0 times`, es el contenedor Ryuk de testcontainers y no los tests: `TESTCONTAINERS_RYUK_DISABLED=true go test -tags=integration ./internal/repository/ -v`.
 
@@ -201,7 +213,7 @@ Una orden creada cuando `proveedores-service` no respondió viene con `proveedor
 
 ### `POST /api/v1/stock/ordenes/{id}/transiciones`
 
-Mueve la orden a otro estado, si RN-15 lo permite. Existe para operar a mano lo que todavía no dispara nada: el ciclo deja la orden en `BORRADOR` y quien la pasa a `SOLICITADA` es el pedido a FAV, que falta.
+Mueve la orden a otro estado, si RN-15 lo permite. Existe para operar a mano las órdenes que no son de FAV: las de FAV las mueven el pedido y sus avisos.
 
 ```bash
 curl -i -X POST http://stock-service:8080/api/v1/stock/ordenes/3c1a…/transiciones \
@@ -210,6 +222,34 @@ curl -i -X POST http://stock-service:8080/api/v1/stock/ordenes/3c1a…/transicio
 ```
 
 `200` con la orden actualizada. Si la transición no está permitida, `409 TRANSICION_INVALIDA` y la orden **no cambia**; el `detail` dice en qué estado está y qué se permite desde ahí. Si otra request la movió en el medio, se rechaza con el estado nuevo en lugar de pisarlo.
+
+### `POST /api/v1/stock/ordenes/{id}/pedido`
+
+Le hace el pedido a FAV en el momento, sin esperar el ciclo. Sirve para la demo y para reintentar a mano una orden que quedó en `BORRADOR`.
+
+```bash
+curl -i -X POST http://stock-service:8080/api/v1/stock/ordenes/3c1a…/pedido -H "X-API-Key: dev"
+```
+
+| Status | `code` | Cuándo |
+|---|---|---|
+| 200 | — | FAV aceptó el pedido: la orden vuelve en `SOLICITADA` con `pedido_id`, `pedido_total` y `pago_vence_en` |
+| 409 | `PEDIDO_RECHAZADO` | FAV lo rechazó (por ejemplo, sin stock) o la orden no es de una prenda de FAV. La orden sigue en `BORRADOR` con el `motivo` |
+| 409 | `TRANSICION_INVALIDA` | la orden ya no está en `BORRADOR` |
+| 503 | `PROVEEDOR_NO_DISPONIBLE` | FAV no respondió; el ciclo reintenta con la misma `Idempotency-Key` |
+
+### `POST /webhooks/fav`
+
+El aviso `pedidoActualizado` de FAV. **No pasa por el gateway ni pide API key**: se autentica con la firma `X-FAV-Firma` (HMAC-SHA256 de `<t>.<cuerpo crudo>` con `FAV_SECRETO_AVISOS`, a lo sumo 5 minutos de antigüedad). Responde enseguida y procesa después: confirma el estado con `GET /v1/pedidos/{pedidoId}` y mueve la orden (`PAGADO` → `CONFIRMADA` y suma el stock, `VENCIDO` → `VENCIDA`, `A_VERIFICAR` o un estado desconocido → `EN_REVISION`).
+
+| Status | `code` | Cuándo |
+|---|---|---|
+| 200 | — | aviso recibido; `"repetido": true` si ese `eventoId` ya había llegado |
+| 400 | `AVISO_INVALIDO` | firma bien pero sin `eventoId` o `pedido`, o `X-FAV-Evento-Id` distinto del cuerpo |
+| 401 | `FIRMA_INVALIDA` | firma ausente, mala o vieja. FAV no lo reintenta |
+| 503 | `NO_DISPONIBLE` | la base no respondió al registrar el aviso. FAV lo reintenta |
+
+**Para la demo**, con el mock: `POST localhost:8090/_mock/pedidos/<pedido_id>/estado` con `{"estado":"PAGADO"}` simula que FAV verificó la transferencia y manda el aviso. `"duplicar": true` lo manda dos veces y `"firmaInvalida": true` lo firma mal.
 
 ### `GET /healthz` y `GET /readyz`
 

@@ -33,11 +33,20 @@ type Orden struct {
 	Intento         int       `json:"intento"`
 	CreadoEn        time.Time `json:"creado_en"`
 	ActualizadoEn   time.Time `json:"actualizado_en"`
+
+	// El pedido a FAV (ADR-009). ClavePedido es la Idempotency-Key del
+	// intento en curso: no se publica en la API.
+	ClavePedido  *string    `json:"-"`
+	PedidoID     *string    `json:"pedido_id"`
+	PedidoEstado *string    `json:"pedido_estado"`
+	PedidoTotal  *float64   `json:"pedido_total"`
+	PagoVenceEn  *time.Time `json:"pago_vence_en"`
 }
 
 const columnasOrden = `
     id::text, sku, cantidad, estado, proveedor_id, proveedor_nombre,
-    costo_total, motivo, intento, creado_en, actualizado_en`
+    costo_total, motivo, intento, creado_en, actualizado_en,
+    clave_pedido, pedido_id, pedido_estado, pedido_total, pago_vence_en`
 
 const querySKUsBajoMinimo = `
 SELECT sku, disponible, reservado, minimo
@@ -194,7 +203,8 @@ func escanearOrden(fila pgx.Row) (Orden, error) {
 	var o Orden
 	err := fila.Scan(&o.ID, &o.SKU, &o.Cantidad, &o.Estado, &o.ProveedorID,
 		&o.ProveedorNombre, &o.CostoTotal, &o.Motivo, &o.Intento,
-		&o.CreadoEn, &o.ActualizadoEn)
+		&o.CreadoEn, &o.ActualizadoEn,
+		&o.ClavePedido, &o.PedidoID, &o.PedidoEstado, &o.PedidoTotal, &o.PagoVenceEn)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Orden{}, ErrNoEncontrado
 	}

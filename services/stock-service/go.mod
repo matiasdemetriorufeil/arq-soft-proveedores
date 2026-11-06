@@ -14,9 +14,16 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 )
 
+require github.com/getkin/kin-openapi v0.152.0
+
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+	github.com/go-openapi/jsonpointer v1.0.0 // indirect
+	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
+	github.com/oasdiff/yaml v0.1.1 // indirect
+	github.com/oasdiff/yaml3 v0.0.14 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect

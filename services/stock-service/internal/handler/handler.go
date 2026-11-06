@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/fav"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/repository"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/service"
 )
@@ -38,6 +39,13 @@ type ServicioOrdenes interface {
 	TransicionarOrden(ctx context.Context, id, hacia string) (repository.Orden, error)
 }
 
+// ServicioPedidos es lo que el adaptador necesita para los pedidos a FAV y su
+// webhook (ADR-009).
+type ServicioPedidos interface {
+	EnviarOrden(ctx context.Context, id string) (repository.Orden, error)
+	RecibirAviso(ctx context.Context, a fav.Aviso, alTerminar func(error)) (bool, error)
+}
+
 // Salud es el chequeo de /readyz.
 type Salud interface {
 	Ping(ctx context.Context) error
@@ -49,16 +57,23 @@ type Config struct {
 	// Ordenes puede ser nil: en ese caso las rutas de órdenes no se registran
 	// y el servicio expone solo la reserva.
 	Ordenes ServicioOrdenes
-	Salud   Salud
-	APIKeys []string
-	Logger  *slog.Logger
+	// Pedidos puede ser nil: sin FAV configurado no hay envío ni webhook.
+	Pedidos ServicioPedidos
+	// SecretoAvisos verifica la firma del webhook de FAV. Sin él, la ruta del
+	// webhook no se registra: un receptor que no puede verificar no tiene que
+	// aceptar nada.
+	SecretoAvisos string
+	Salud         Salud
+	APIKeys       []string
+	Logger        *slog.Logger
 }
 
 // NuevoHandler arma el router con sus middlewares. Las rutas de negocio van
 // detrás de conAPIKey; las de salud, no: las consulta el healthcheck del
 // contenedor, que no tiene la clave.
 func NuevoHandler(cfg Config) http.Handler {
-	h := &handler{svc: cfg.Servicio, ordenesSvc: cfg.Ordenes, salud: cfg.Salud}
+	h := &handler{svc: cfg.Servicio, ordenesSvc: cfg.Ordenes, pedidosSvc: cfg.Pedidos,
+		secreto: cfg.SecretoAvisos, salud: cfg.Salud, ahora: time.Now}
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /api/v1/stock/reservas",
@@ -72,6 +87,15 @@ func NuevoHandler(cfg Config) http.Handler {
 		mux.Handle("POST /api/v1/stock/ordenes/{id}/transiciones",
 			conAPIKey(cfg.APIKeys, http.HandlerFunc(h.transicionarOrden)))
 	}
+	if cfg.Ordenes != nil && cfg.Pedidos != nil {
+		mux.Handle("POST /api/v1/stock/ordenes/{id}/pedido",
+			conAPIKey(cfg.APIKeys, http.HandlerFunc(h.enviarPedido)))
+	}
+	if cfg.Pedidos != nil && cfg.SecretoAvisos != "" {
+		// Sin API key: lo llama FAV, directo y no por el gateway (ADR-009), y
+		// se autentica con la firma HMAC del aviso.
+		mux.HandleFunc("POST /webhooks/fav", h.webhookFAV)
+	}
 	mux.Handle("GET /api/v1/stock/{sku}",
 		conAPIKey(cfg.APIKeys, http.HandlerFunc(h.stock)))
 	mux.HandleFunc("GET /healthz", h.healthz)
@@ -83,7 +107,10 @@ func NuevoHandler(cfg Config) http.Handler {
 type handler struct {
 	svc        ServicioStock
 	ordenesSvc ServicioOrdenes
+	pedidosSvc ServicioPedidos
+	secreto    string
 	salud      Salud
+	ahora      func() time.Time
 }
 
 // cuerpoReserva es el cuerpo de POST /api/v1/stock/reservas. `cantidad` queda

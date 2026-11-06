@@ -96,6 +96,18 @@ type ClienteProveedores interface {
 type ServicioOrdenes struct {
 	repo RepositorioOrdenes
 	prov ClienteProveedores
+
+	// El proveedor de las prendas de FAV (UsarProveedorFAV). Con favID en 0,
+	// sus SKUs se tratan como cualquier otro.
+	favID     int64
+	favNombre string
+}
+
+// UsarProveedorFAV fija el id de FAV en la tabla de proveedores (el 11, de la
+// migración 003 de proveedores-service): las órdenes de sus prendas van
+// dirigidas a FAV sin consultar el ranking.
+func (s *ServicioOrdenes) UsarProveedorFAV(id int64, nombre string) {
+	s.favID, s.favNombre = id, nombre
 }
 
 // NuevoServicioOrdenes crea la capa de negocio de las órdenes. `prov` puede ser

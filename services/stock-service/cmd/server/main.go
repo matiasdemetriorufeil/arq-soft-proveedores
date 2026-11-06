@@ -1,5 +1,6 @@
 // Command server arranca stock-service: aplica las migraciones y expone
-// POST /api/v1/stock/reservas, GET /api/v1/stock/{sku}, /healthz y /readyz.
+// POST /api/v1/stock/reservas, GET /api/v1/stock/{sku}, las órdenes de
+// reposición, el webhook de FAV (/webhooks/fav), /healthz y /readyz.
 package main
 
 import (
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/pkg/observabilidad"
+	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/fav"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/handler"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/proveedores"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/repository"
@@ -52,7 +55,24 @@ type config struct {
 	proveedoresURL      string
 	proveedoresAPIKey   string
 	intervaloReposicion time.Duration
+
+	// Pedidos a FAV (ADR-009). Sin favURL los pedidos quedan apagados: las
+	// órdenes de prendas de FAV se crean igual y esperan en BORRADOR.
+	favURL             string
+	favAPIKey          string
+	favSecretoAvisos   string
+	favNotificacionURL string
+	favProveedorID     int64
+	intervaloPedidos   time.Duration
 }
+
+const (
+	// intervaloPedidosPorDefecto es el de la consulta de respaldo de ADR-009.
+	intervaloPedidosPorDefecto = 15 * time.Minute
+	// favProveedorIDPorDefecto es el id de FAV en la tabla de proveedores
+	// (migración 003 de proveedores-service).
+	favProveedorIDPorDefecto = 11
+)
 
 func cargarConfig() (config, error) {
 	c := config{
@@ -87,6 +107,33 @@ func cargarConfig() (config, error) {
 		}
 		c.intervaloReposicion = d
 	}
+	c.favURL = strings.TrimSpace(os.Getenv("FAV_URL"))
+	c.favAPIKey = strings.TrimSpace(os.Getenv("FAV_API_KEY"))
+	c.favSecretoAvisos = strings.TrimSpace(os.Getenv("FAV_SECRETO_AVISOS"))
+	c.favNotificacionURL = strings.TrimSpace(os.Getenv("FAV_NOTIFICACION_URL"))
+	if c.favURL != "" && c.favAPIKey == "" {
+		return c, errors.New("FAV_API_KEY es obligatoria si se configura FAV_URL")
+	}
+	if c.favNotificacionURL != "" && c.favSecretoAvisos == "" {
+		return c, errors.New("FAV_SECRETO_AVISOS es obligatorio si se configura FAV_NOTIFICACION_URL: sin él no se pueden verificar los avisos")
+	}
+	c.favProveedorID = favProveedorIDPorDefecto
+	if v := strings.TrimSpace(os.Getenv("FAV_PROVEEDOR_ID")); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id <= 0 {
+			return c, fmt.Errorf("FAV_PROVEEDOR_ID inválido (%q)", v)
+		}
+		c.favProveedorID = id
+	}
+	c.intervaloPedidos = intervaloPedidosPorDefecto
+	if v := strings.TrimSpace(os.Getenv("INTERVALO_PEDIDOS_FAV")); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < intervaloReposicionMinimo {
+			return c, fmt.Errorf("INTERVALO_PEDIDOS_FAV tiene que ser una duración de %s o más (%q)", intervaloReposicionMinimo, v)
+		}
+		c.intervaloPedidos = d
+	}
+
 	// Si no hay clave propia para proveedores-service se usa la primera de las
 	// nuestras: en el compose las dos puntas comparten API_KEYS.
 	if c.proveedoresAPIKey == "" {
@@ -172,10 +219,26 @@ func run(log *slog.Logger) error {
 	}
 	svcOrdenes := service.NuevoServicioOrdenes(repo, cliente)
 
+	// Pedidos a FAV: el cliente sale directo a FAV, nunca por el gateway, y
+	// FAV nos avisa directo a /webhooks/fav (ADR-009).
+	var svcPedidos *service.ServicioPedidos
+	if cfg.favURL != "" {
+		svcOrdenes.UsarProveedorFAV(cfg.favProveedorID, "FAV (tienda de ropa)")
+		svcPedidos = service.NuevoServicioPedidos(repo,
+			fav.NuevoCliente(cfg.favURL, cfg.favAPIKey, otelhttp.NewTransport(http.DefaultTransport)),
+			cfg.favNotificacionURL)
+		if cfg.favNotificacionURL == "" {
+			log.Warn("pedidos a FAV sin webhook: falta FAV_NOTIFICACION_URL; el estado se sigue solo con la consulta de respaldo")
+		}
+		go correrCicloDePedidos(ctx, log, svcPedidos, cfg.intervaloPedidos)
+	} else {
+		log.Warn("pedidos a FAV apagados: falta FAV_URL; las órdenes de prendas de FAV esperan en BORRADOR")
+	}
+
 	if cliente != nil {
 		// El ciclo termina con el contexto de la señal: al apagar, deja de
 		// correr y no bloquea el apagado ordenado del servidor.
-		go correrCicloDeReposicion(ctx, log, svcOrdenes, cfg.intervaloReposicion)
+		go correrCicloDeReposicion(ctx, log, svcOrdenes, svcPedidos, cfg.intervaloReposicion)
 	}
 
 	// otelhttp va por fuera del handler que arma el adaptador: continúa la traza
@@ -185,9 +248,12 @@ func run(log *slog.Logger) error {
 		handler.NuevoHandler(handler.Config{
 			Servicio: svc,
 			Ordenes:  svcOrdenes,
-			Salud:    repo,
-			APIKeys:  cfg.apiKeys,
-			Logger:   log,
+			Pedidos:  pedidosParaHandler(svcPedidos),
+			// Sin secreto no se registra el webhook.
+			SecretoAvisos: cfg.favSecretoAvisos,
+			Salud:         repo,
+			APIKeys:       cfg.apiKeys,
+			Logger:        log,
 		}),
 		// El nombre del span lo arma el formateador de abajo, no esta etiqueta.
 		"",
@@ -239,7 +305,7 @@ func run(log *slog.Logger) error {
 // que falla no detiene las siguientes: el faltante sigue estando y el ciclo
 // siguiente lo vuelve a intentar.
 func correrCicloDeReposicion(ctx context.Context, log *slog.Logger,
-	svc *service.ServicioOrdenes, intervalo time.Duration) {
+	svc *service.ServicioOrdenes, pedidos *service.ServicioPedidos, intervalo time.Duration) {
 
 	log.Info("reposición automática encendida", "intervalo", intervalo.String())
 	t := time.NewTicker(intervalo)
@@ -247,6 +313,10 @@ func correrCicloDeReposicion(ctx context.Context, log *slog.Logger,
 
 	for {
 		unaVueltaDeReposicion(ctx, log, svc)
+		if pedidos != nil {
+			// Las órdenes nuevas de prendas de FAV salen en la misma vuelta.
+			unaVueltaDePedidos(ctx, log, pedidos, false)
+		}
 		select {
 		case <-ctx.Done():
 			log.Info("reposición automática detenida")
@@ -278,6 +348,58 @@ func unaVueltaDeReposicion(ctx context.Context, log *slog.Logger, svc *service.S
 		slog.Int("fallidas", res.Fallidas),
 		slog.Any("problemas", res.Problemas),
 		slog.Float64("duration_ms", float64(time.Since(inicio).Microseconds())/1000),
+	)
+}
+
+// pedidosParaHandler evita pasarle al handler una interfaz con un puntero
+// nil adentro, que no es nil: sin pedidos, el handler no registra sus rutas.
+func pedidosParaHandler(p *service.ServicioPedidos) handler.ServicioPedidos {
+	if p == nil {
+		return nil
+	}
+	return p
+}
+
+// correrCicloDePedidos envía los pedidos pendientes y hace la consulta de
+// respaldo al arrancar y cada `intervalo` (ADR-009: cada 15 minutos).
+func correrCicloDePedidos(ctx context.Context, log *slog.Logger, svc *service.ServicioPedidos, intervalo time.Duration) {
+	log.Info("pedidos a FAV encendidos", "intervalo", intervalo.String())
+	t := time.NewTicker(intervalo)
+	defer t.Stop()
+	for {
+		unaVueltaDePedidos(ctx, log, svc, true)
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+func unaVueltaDePedidos(ctx context.Context, log *slog.Logger, svc *service.ServicioPedidos, conSeguimiento bool) {
+	env, err := svc.EnviarPendientes(ctx)
+	if err != nil && ctx.Err() == nil {
+		log.Error("no se pudieron enviar los pedidos a FAV", "error", err.Error())
+	}
+	var seg service.ResumenPedidos
+	if conSeguimiento {
+		if seg, err = svc.Seguimiento(ctx); err != nil && ctx.Err() == nil {
+			log.Error("la consulta de respaldo a FAV falló", "error", err.Error())
+		}
+	}
+	if ctx.Err() != nil || env.Enviadas+env.Fallidas+seg.Seguidas == 0 {
+		return
+	}
+	nivel := slog.LevelInfo
+	if env.Fallidas > 0 || len(seg.Problemas) > 0 {
+		nivel = slog.LevelWarn
+	}
+	log.LogAttrs(ctx, nivel, "pedidos a FAV",
+		slog.Int("enviados", env.Enviadas),
+		slog.Int("fallidos", env.Fallidas),
+		slog.Int("seguidos", seg.Seguidas),
+		slog.Int("cambiaron", seg.Cambiadas),
+		slog.Any("problemas", append(env.Problemas, seg.Problemas...)),
 	)
 }
 
