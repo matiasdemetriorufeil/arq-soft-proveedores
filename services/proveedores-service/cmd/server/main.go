@@ -1,5 +1,8 @@
-// Command server arranca proveedores-service: aplica las migraciones y expone
-// GET /api/v1/proveedores/recomendados, /healthz y /readyz.
+// Command server arranca proveedores-service: aplica las migraciones, expone
+// GET /api/v1/proveedores/recomendados, GET /api/v1/productos/buscar, /healthz y
+// /readyz, y consume ListaPreciosActualizada. Solo PostgreSQL es obligatorio:
+// RabbitMQ, Redis y Meilisearch se conectan en segundo plano y, si no están, el
+// servicio atiende igual la capacidad.
 package main
 
 import (
@@ -10,7 +13,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,7 +23,12 @@ import (
 
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/pkg/observabilidad"
 	httpadapter "github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/internal/adapters/http"
+	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/internal/adapters/meilisearch"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/internal/adapters/postgres"
+	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/internal/adapters/rabbitmq"
+	redisadapter "github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/internal/adapters/redis"
+	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/internal/indexacion"
+	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/internal/ports"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores-service/migrations"
 )
 
@@ -34,12 +44,33 @@ type config struct {
 	databaseURL string
 	apiKeys     []string
 	port        string
+	// Vacías apagan lo que dependa de ellas.
+	rabbitURL       string
+	redisURL        string
+	meiliURL        string
+	meiliClave      string
+	meiliIndice     string
+	cacheHabilitada bool
 }
 
 func cargarConfig() (config, error) {
 	c := config{
 		databaseURL: strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		port:        strings.TrimSpace(os.Getenv("PORT")),
+		rabbitURL:   strings.TrimSpace(os.Getenv("RABBITMQ_URL")),
+		redisURL:    strings.TrimSpace(os.Getenv("REDIS_URL")),
+		meiliURL:    strings.TrimSpace(os.Getenv("MEILI_URL")),
+		meiliClave:  os.Getenv("MEILI_MASTER_KEY"),
+		meiliIndice: strings.TrimSpace(os.Getenv("MEILI_INDICE")),
+
+		cacheHabilitada: true,
+	}
+	if v := strings.TrimSpace(os.Getenv("CACHE_HABILITADA")); v != "" {
+		habilitada, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, fmt.Errorf("CACHE_HABILITADA inválida: %q", v)
+		}
+		c.cacheHabilitada = habilitada
 	}
 	if c.port == "" {
 		c.port = "8080"
@@ -118,15 +149,53 @@ func run(log *slog.Logger) error {
 
 	repo := postgres.NuevoRepo(pool)
 
+	lectura, invalidador, cerrarCache, err := armarCache(cfg, repo, log)
+	if err != nil {
+		return err
+	}
+	defer cerrarCache()
+
+	// Lo de fondo vive hasta que se cancele ctx, y se espera al salir para que un
+	// evento a medio aplicar termine antes de cerrar el pool.
+	var fondo sync.WaitGroup
+	defer fondo.Wait()
+	fondoCtx, cancelarFondo := context.WithCancel(ctx)
+	defer cancelarFondo()
+
+	var buscador ports.BuscadorProductos
+	var aviso ports.AvisoIndexacion
+	if cfg.meiliURL != "" {
+		cliente := meilisearch.NuevoCliente(cfg.meiliURL, cfg.meiliClave, cfg.meiliIndice)
+		indexador := indexacion.Nuevo(repo, cliente, log, 0)
+		buscador, aviso = cliente, indexador
+		fondo.Go(func() { indexador.Correr(fondoCtx) })
+	} else {
+		log.Warn("sin MEILI_URL: la búsqueda responde 503")
+	}
+
+	if cfg.rabbitURL != "" {
+		consumidor := rabbitmq.NuevoConsumidor(rabbitmq.Config{
+			URL:         cfg.rabbitURL,
+			Aplicador:   repo,
+			Invalidador: invalidador,
+			Aviso:       aviso,
+			Logger:      log,
+		})
+		fondo.Go(func() { consumidor.Correr(fondoCtx) })
+	} else {
+		log.Warn("sin RABBITMQ_URL: no se consumen eventos")
+	}
+
 	// otelhttp va por fuera del handler que arma el adaptador: continúa la traza
 	// que viene en el `traceparent` del gateway y abre el span del servidor antes
 	// de que corra el middleware de log, que por eso emite su línea con trace_id.
 	handler := otelhttp.NewHandler(
 		httpadapter.NuevoHandler(httpadapter.Config{
-			Repo:    repo,
-			Salud:   repo,
-			APIKeys: cfg.apiKeys,
-			Logger:  log,
+			Repo:     lectura,
+			Salud:    repo,
+			Buscador: buscador,
+			APIKeys:  cfg.apiKeys,
+			Logger:   log,
 		}),
 		// El nombre del span lo arma el formateador de abajo, no esta etiqueta.
 		"",
@@ -171,6 +240,25 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("servidor detenido")
 	return nil
+}
+
+// armarCache devuelve el repositorio de lectura de la capacidad: el de PostgreSQL
+// decorado con Redis o, con la caché apagada, el de PostgreSQL tal cual. El
+// invalidador es nil si no hay caché, y el consumidor lo tolera.
+func armarCache(cfg config, repo *postgres.Repo, log *slog.Logger) (ports.OfertasRepo, ports.InvalidadorOfertas, func(), error) {
+	sinCerrar := func() {}
+	if !cfg.cacheHabilitada || cfg.redisURL == "" {
+		log.Info("caché apagada: la capacidad lee directo de PostgreSQL",
+			"cache_habilitada", cfg.cacheHabilitada, "redis_configurado", cfg.redisURL != "")
+		return repo, nil, sinCerrar, nil
+	}
+	almacen, err := redisadapter.NuevoAlmacen(cfg.redisURL)
+	if err != nil {
+		return nil, nil, sinCerrar, err
+	}
+	cache := redisadapter.NuevaCache(almacen, repo, log)
+	log.Info("caché prendida: la capacidad lee de Redis y, si falta o falla, de PostgreSQL")
+	return cache, cache, func() { _ = almacen.Cerrar() }, nil
 }
 
 // migrarConReintentos tolera que Postgres todavía esté arrancando (por
