@@ -1,5 +1,5 @@
 // Package http es el adaptador de entrada HTTP: expone la capacidad de
-// proveedores recomendados y los chequeos de salud.
+// proveedores recomendados, la búsqueda de productos y los chequeos de salud.
 package http
 
 import (
@@ -16,19 +16,23 @@ import (
 
 // Config agrupa las dependencias del adaptador HTTP.
 type Config struct {
-	Repo    ports.OfertasRepo
-	Salud   ports.Salud
-	APIKeys []string
-	Logger  *slog.Logger
+	Repo  ports.OfertasRepo
+	Salud ports.Salud
+	// Buscador es opcional: sin él, la búsqueda responde 503 y la capacidad sigue.
+	Buscador ports.BuscadorProductos
+	APIKeys  []string
+	Logger   *slog.Logger
 }
 
 // NuevoHandler arma el router con sus middlewares.
 func NuevoHandler(cfg Config) http.Handler {
-	h := &handler{repo: cfg.Repo, salud: cfg.Salud}
+	h := &handler{repo: cfg.Repo, salud: cfg.Salud, buscador: cfg.Buscador}
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /api/v1/proveedores/recomendados",
 		conAPIKey(cfg.APIKeys, http.HandlerFunc(h.recomendados)))
+	mux.Handle("GET /api/v1/productos/buscar",
+		conAPIKey(cfg.APIKeys, http.HandlerFunc(h.buscar)))
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("GET /readyz", h.readyz)
 
@@ -36,8 +40,9 @@ func NuevoHandler(cfg Config) http.Handler {
 }
 
 type handler struct {
-	repo  ports.OfertasRepo
-	salud ports.Salud
+	repo     ports.OfertasRepo
+	salud    ports.Salud
+	buscador ports.BuscadorProductos
 }
 
 func (h *handler) recomendados(w http.ResponseWriter, r *http.Request) {
