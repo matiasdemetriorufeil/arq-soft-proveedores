@@ -263,8 +263,9 @@ Detalle y límites en [ADR-011](adr/ADR-011-observabilidad.md).
 | # | Decisión | Documento | Estado |
 |---|---|---|---|
 | D1 | Límites de los servicios | [ADR-001](adr/ADR-001-limites-de-los-servicios.md) y [ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md) | aceptado (gateway, proveedores e import); stock propuesto; sin `catalog-service` (ADR-014, propuesto) |
-| D2 | Arquitectura interna | [ADR-002](adr/ADR-002-arquitectura-interna.md) | aceptado |
-| D3 | Persistencia | [ADR-003](adr/ADR-003-persistencia.md) | aceptado (PostgreSQL y MongoDB); stock propuesto |
+| D2 | Arquitectura interna | [ADR-002](adr/ADR-002-arquitectura-interna.md) | aceptado e implementado: hexagonal en proveedores y en capas en stock |
+| D3 | Persistencia | [ADR-003](adr/ADR-003-persistencia.md) | aceptado (PostgreSQL en proveedores y stock, MongoDB en import) |
+| D4 | Consistencia y concurrencia | [ADR-004](adr/ADR-004-consistencia-y-concurrencia.md) | aceptado e implementado: reserva con `FOR UPDATE` e idempotencia, con el test de 20 reservas simultáneas en verde contra PostgreSQL real |
 | D5 | Comunicación entre servicios | [ADR-005](adr/ADR-005-comunicacion.md) | aceptado (síncrono y publicación del evento); consumo propuesto |
 | D6 | Búsqueda | [ADR-006](adr/ADR-006-busqueda.md) | propuesto |
 | D7 | Caché | [ADR-007](adr/ADR-007-cache.md) | propuesto |
@@ -277,8 +278,7 @@ Detalle y límites en [ADR-011](adr/ADR-011-observabilidad.md).
 
 **Bonus:** el grupo no toma ninguno (anunciado en la Entrega 2, consigna sección 7).
 
-La decisión D4 (consistencia y concurrencia) todavía no tiene documento; la
-plantilla para los ADR nuevos está en [`adr/TEMPLATE.md`](adr/TEMPLATE.md).
+La plantilla para los ADR nuevos está en [`adr/TEMPLATE.md`](adr/TEMPLATE.md).
 
 ## 11. Limitaciones conocidas y deuda técnica
 

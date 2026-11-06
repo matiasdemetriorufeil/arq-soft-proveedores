@@ -233,6 +233,37 @@ services:
     # que bajarla.
     pull_policy: never
 
+  # Administra el stock propio y reserva unidades sin sobreventa (HU-13,
+  # ADR-004). Usa su propia base `stock` con su propio usuario, que no puede
+  # conectarse a la de proveedores (ADR-003). No publica puerto al host y
+  # todavía no está ruteado en el gateway: se lo alcanza desde la red interna
+  # como http://stock-service:8080.
+  stock-service:
+    build:
+      # El contexto es la raíz del repo: el módulo del servicio depende de
+      # pkg/observabilidad por ruta relativa, igual que los otros.
+      context: .
+      dockerfile: services/stock-service/Dockerfile
+    image: arq-soft/stock-service:dev
+    environment:
+      DATABASE_URL: postgres://${STOCK_DB_USER}:${STOCK_DB_PASSWORD}@postgres:5432/${STOCK_DB}?sslmode=disable
+      API_KEYS: ${API_KEYS:?falta API_KEYS en .env}
+      PORT: "8080"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # La imagen es distroless: el healthcheck es el binario `sonda` de su
+    # propia imagen, que pregunta por /readyz y sale 0 o 1.
+    healthcheck:
+      test: ["CMD", "/sonda"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks: [interna]
+    restart: unless-stopped
+
   api-gateway:
     build:
       # El contexto es la raíz del repo: el módulo del gateway depende de

@@ -64,11 +64,11 @@ estados.
 | **RN-11** | Los errores se devuelven siempre en `application/problem+json` con un `code` estable. Los códigos son: `PARAMETRO_INVALIDO`, `NO_AUTORIZADO`, `PRODUCTO_NO_ENCONTRADO`, `RUTA_NO_ENCONTRADA`, `NO_DISPONIBLE`. |
 | **RN-12** | Una réplica caída no puede dejar sin servicio a la capacidad mientras quede otra sana. Una consulta es un `GET` sin efectos y puede repetirse sin riesgo. |
 
-### Stock y reposición — propuesto
+### Stock y reposición — RN-13 implementado; la reposición sigue propuesta
 
 | ID | Regla |
 |---|---|
-| **RN-13** | **Sin sobreventa:** el stock reservado nunca supera el disponible, aun con reservas simultáneas. Ninguna reserva se pierde ni se duplica. |
+| **RN-13** | **Sin sobreventa:** el stock reservado nunca supera el disponible, aun con reservas simultáneas. Ninguna reserva se pierde ni se duplica. **Implementado** en `services/stock-service`: `SELECT … FOR UPDATE` dentro de la transacción que abre `internal/service`, `CHECK (disponible >= 0)` en la base e idempotencia por `Idempotency-Key` ([ADR-004](docs/adr/ADR-004-consistencia-y-concurrencia.md)). |
 | **RN-14** | **Punto de reorden:** cuando el stock de un producto baja de su mínimo configurado, corresponde generar una orden de reposición. Solo una orden abierta por producto. |
 | **RN-15** | Una orden de reposición pasa por los estados `BORRADOR → SOLICITADA → CONFIRMADA`, en ese orden y sin saltear estados. Desde `SOLICITADA` también puede pasar a `VENCIDA` (el proveedor la dio de baja por falta de pago) o a `EN_REVISION` (el proveedor informa un estado que no conocemos), y desde `VENCIDA` a `EN_REVISION` (el pago llegó después del vencimiento). `EN_REVISION` se resuelve a mano ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)). |
 | **RN-16** | La orden de reposición se dirige al proveedor con **menor costo total** para la cantidad a reponer (RN-01 a RN-05). |
@@ -186,11 +186,13 @@ productos, 170 ofertas) y se comprobaron contra el cálculo de RN-01 a RN-05.
 - **CA-12.1** *Dado* dos proveedores que llaman distinto al mismo producto, *entonces* ambos aparecen en el mismo ranking.
 - **CA-12.2** *Dado* un código sin mapear, *entonces* no entra al ranking y queda señalado para revisión (RN-18).
 
-#### HU-13 — Reservar stock sin sobreventa · propuesto
+#### HU-13 — Reservar stock sin sobreventa · implementado ([`services/stock-service`](services/stock-service/README.md))
 *Como operador de compras, quiero reservar unidades de mi stock sabiendo que nunca voy a reservar más de las que hay.*
 
-- **CA-13.1** *Dado* un stock de 10 y dos reservas simultáneas de 6, *entonces* una se acepta y la otra se rechaza; el stock nunca queda negativo (RN-13).
-- **CA-13.2** *Dado* la misma reserva repetida por un reintento, *entonces* se aplica una sola vez.
+`POST /api/v1/stock/reservas` con `X-API-Key` e `Idempotency-Key`: `201` con la reserva, `409 STOCK_INSUFICIENTE` si no alcanza, `200` con la misma reserva si la clave ya se aplicó. Todavía **no** está ruteada en el `api-gateway`.
+
+- **CA-13.1** *Dado* un stock de 10 y dos reservas simultáneas de 6, *entonces* una se acepta y la otra se rechaza; el stock nunca queda negativo (RN-13). Evidencia: `TestSinSobreventaConReservasSimultaneas` en `services/stock-service/internal/repository/concurrencia_integration_test.go`, **corrido en verde contra PostgreSQL 16 real** el 06/11: 20 reservas de 6 a la vez, 1 aceptada, 19 rechazadas por stock insuficiente, disponible final 4 y una sola fila en `reservas`. El test corre sobre la capa de datos, así que verifica el error de negocio, no el `409` del handler.
+- **CA-13.2** *Dado* la misma reserva repetida por un reintento, *entonces* se aplica una sola vez. Evidencia: `TestReservarEsIdempotente` y `TestReservarCarreraDeReintentosNoDuplicaElStock` en `internal/service/stock_test.go` (sin base), y `TestReintentosSimultaneosAplicanElStockUnaVez` en `internal/repository/concurrencia_integration_test.go`.
 
 #### HU-14 — Reponer automáticamente lo que baja del mínimo · propuesto
 *Como operador de compras, quiero que el sistema detecte el faltante y proponga una orden con el proveedor más conveniente.*
@@ -257,4 +259,5 @@ criterios de aceptación del sistema completo.
 | HU-10 | — | `docker-compose.yml`, `.env.example` |
 | HU-11, HU-15 | RN-17 a RN-20 | `services/import-service` (parcial); evento en [`docs/contracts/eventos.md`](docs/contracts/eventos.md) |
 | HU-12 | RN-18 | fuera de alcance: [ADR-014](docs/adr/ADR-014-tres-servicios-sin-catalogo.md) |
-| HU-13, HU-14, HU-16, HU-17 | RN-13 a RN-16 | sin código todavía; ver [ADR-001](docs/adr/ADR-001-limites-de-los-servicios.md) |
+| HU-13 | RN-13 | `services/stock-service/internal/service` (regla y transacción), `internal/repository` (`SELECT … FOR UPDATE`), `migrations/001_init.sql`; [ADR-004](docs/adr/ADR-004-consistencia-y-concurrencia.md) |
+| HU-14, HU-16, HU-17 | RN-14 a RN-16 | sin código todavía; ver [ADR-001](docs/adr/ADR-001-limites-de-los-servicios.md) |

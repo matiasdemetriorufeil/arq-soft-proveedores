@@ -1,8 +1,8 @@
 # ADR-002 — Arquitectura interna de los servicios (D2)
 
-- **Estado:** aceptado para `proveedores-service`; propuesto para el segundo servicio (a validar por el grupo)
-- **Fecha:** 2026-10-22
-- **Entrega:** 2 (23/10)
+- **Estado:** aceptado e implementado: hexagonal en `proveedores-service` y **en capas en `stock-service`** (los dos patrones, en código)
+- **Fecha:** 2026-10-22; actualizado el 2026-11-06 con `stock-service`
+- **Entrega:** 2 (23/10); el segundo patrón se completa en la 3 (11/11)
 - **Decisión de la consigna:** D2. Estilos o patrones elegidos, dependencias internas y por qué cada uno encaja con el problema del servicio.
 
 ## Contexto
@@ -36,7 +36,20 @@ internal/adapters/postgres/  adaptador de salida: pgx, consulta con join, migrac
 
 Regla de dependencias: `adapters → ports → domain`. `domain` no importa nada fuera de la biblioteca estándar. El handler llama a `repo.OfertasPorProducto` y después a `domain.Rankear`: el dominio recibe las ofertas ya cargadas y no sabe de dónde vienen.
 
-**Para el segundo servicio proponemos la arquitectura en capas** (handler → service → repository), por ejemplo en `stock-service`. Su problema es distinto: el riesgo no está en reglas de cálculo que haya que aislar, sino en ejecutar dentro de una transacción la reserva de stock sin sobreventa y las transiciones de la orden de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`, más los finales `VENCIDA` y `EN_REVISION` que agrega [ADR-009](ADR-009-consumo-proveedor.md)). Una capa de servicio que abre la transacción y un repositorio que bloquea filas (`SELECT … FOR UPDATE`) expresan eso de forma directa. Con estilos distintos en los dos servicios, el requisito 2.1 queda cubierto de forma reconocible. Esta propuesta la tiene que validar el grupo.
+**En capas (handler → service → repository) en `stock-service`**, implementado desde el 06/11. Su problema es distinto: el riesgo no está en reglas de cálculo que haya que aislar, sino en ejecutar dentro de una transacción la reserva de stock sin sobreventa ([ADR-004](ADR-004-consistencia-y-concurrencia.md)). Así se ve en el código:
+
+```
+cmd/server/            composición: arma las tres capas, aplica migraciones, apagado ordenado
+internal/handler/      HTTP: validación, API key, request log, problem+json, health checks
+internal/service/      negocio: abre la transacción y decide; errores de negocio sin tipos HTTP
+internal/repository/   datos: pool pgx, SELECT … FOR UPDATE, migraciones, span por consulta
+```
+
+Regla de dependencias: `handler → service → repository`, en un solo sentido. **`repository` es el único paquete que importa `pgx`** y el único que escribe SQL; `service` solo ve el tipo opaco `repository.Tx` —lo recibe y lo vuelve a pasar, sin poder ejecutar nada con él—, así que el límite transaccional lo abre la capa de negocio y el bloqueo de fila lo ejecuta la de datos. Es lo contrario de hexagonal: acá no hay un dominio puro al que haya que proteger de la infraestructura, hay una secuencia de pasos transaccionales que conviene leer de arriba hacia abajo.
+
+Con los dos estilos en código, el requisito 2.1 queda cubierto de forma reconocible: `proveedores-service` tiene `internal/domain` + `internal/ports` + `internal/adapters/`, y `stock-service` tiene `internal/handler` + `internal/service` + `internal/repository`.
+
+Lo que **todavía no** está en capas porque no existe: las transiciones de la orden de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`, más los finales `VENCIDA` y `EN_REVISION` que agrega [ADR-009](ADR-009-consumo-proveedor.md)) son de HU-14 y van a entrar en la misma capa de servicio.
 
 ## Por qué
 
@@ -58,6 +71,12 @@ Regla de dependencias: `adapters → ports → domain`. `domain` no importa nada
 - Latencia del endpoint en local contra PostgreSQL 16 (campo `duration_ms` del log de requests, 22/10): **1 a 3 ms** por request. Es una medición puntual; el test de carga (D13) la va a reemplazar.
 - Base caída: `503` en **2 ms**. Base pausada: `503` en **2,0 s**, que es el timeout configurado.
 - Para comprobar el aislamiento: `go list -deps ./internal/domain` no muestra ningún paquete fuera de la biblioteca estándar.
+
+Mediciones del 06/11 sobre `stock-service` (`go test ./... -cover`, sin infraestructura):
+
+- Cobertura: `internal/service` **90,0 %** e `internal/handler` **89,3 %**, con un repositorio falso y un servicio falso respectivamente. 37 casos en verde.
+- **Un solo paquete escribe SQL e importa pgx:** `internal/repository`. `go list -f '{{join .Imports "\n"}}' ./internal/service` no lo muestra.
+- La separación se ve en que `internal/service` prueba la regla (idempotencia, stock insuficiente, SKU inexistente, una sola transacción en el camino feliz) y `internal/handler` prueba solo la traducción a `problem+json`: ningún test necesita las dos capas a la vez.
 
 ## Qué nos haría cambiar de idea
 
