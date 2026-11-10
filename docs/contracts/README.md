@@ -139,6 +139,7 @@ para una persona y puede cambiar sin cambiar de versión.
 | <a id="NO_AUTORIZADO"></a>`NO_AUTORIZADO` | 401 | gateway y servicio | Falta `X-API-Key` o no es válida. | No: corregir la clave. |
 | <a id="PRODUCTO_NO_ENCONTRADO"></a>`PRODUCTO_NO_ENCONTRADO` | 404 | servicio | El SKU no existe. Un producto que existe pero no tiene ofertas con stock devuelve **200 con `[]`**, no 404. | No: el SKU no existe. |
 | <a id="RUTA_NO_ENCONTRADA"></a>`RUTA_NO_ENCONTRADA` | 404 | **solo gateway** | La ruta o el método no los expone el gateway (incluye un `POST` a la ruta de la capacidad, que devuelve 404 y no 405). | No: es un error de integración. |
+| <a id="LIMITE_EXCEDIDO"></a>`LIMITE_EXCEDIDO` | 429 | **solo gateway** | La clave superó el límite de requests por segundo (desde 1.1.0). Trae el header `Retry-After` en segundos. | **Sí**, después de `Retry-After`. |
 | <a id="NO_DISPONIBLE"></a>`NO_DISPONIBLE` | 502 · 503 · 504 | gateway y servicio | **503** del servicio si la base no responde (timeout de 2 s). **502** del gateway si ninguna réplica responde. **504** del gateway si la réplica no contestó en el tiempo límite (3 s por defecto). | **Sí**, con espera creciente. |
 
 Los errores del servicio **pasan por el gateway tal cual**: el gateway no los
@@ -150,7 +151,8 @@ reinterpreta ni cambia el cuerpo.
   responde `504 NO_DISPONIBLE`. Si el timeout del consumidor es menor, nunca
   verá ese error: verá un corte de su lado, sin `request_id` para correlacionar.
 - **Reintentar solo `NO_DISPONIBLE` (502, 503, 504)**, con espera creciente y un
-  tope bajo (por ejemplo, 2 reintentos). Los 4xx no se arreglan reintentando.
+  tope bajo (por ejemplo, 2 reintentos). Los 4xx no se arreglan reintentando,
+  salvo el `429 LIMITE_EXCEDIDO`: ese se reintenta después de `Retry-After`.
   El gateway ya reintenta **una vez** internamente ante una réplica caída, así
   que no hace falta reintentar de inmediato.
 - **Decidir de antemano qué ve su usuario** si la capacidad no responde. Un `[]`
@@ -170,9 +172,11 @@ cambiaron los precios o el stock.
   salud; una réplica caída sale del reparto. Para quien consume es transparente,
   pero explica por qué dos requests iguales pueden atenderlas procesos distintos.
   Detalle en [`services/api-gateway/README.md`](../../services/api-gateway/README.md).
-- **Sin límite de tasa en v1.** El gateway no limita requests todavía. Les
-  pedimos un uso razonable; si agregamos un límite, será un cambio compatible
-  que se anuncia acá antes.
+- **Límite de tasa (desde 1.1.0).** El gateway limita cada clave con un token
+  bucket: **50 requests por segundo sostenidas, con ráfagas de hasta 100**. Lo
+  que exceda recibe `429 LIMITE_EXCEDIDO` con `Retry-After` (segundos enteros),
+  sin llegar al servicio. Si necesitan más, nos avisan y se ajusta para su
+  clave.
 - **Disponibilidad.** La capacidad se mantiene operativa hasta el final de la
   evaluación. No tenemos un SLA numérico publicado todavía.
 - **Chequeos de salud** (`GET /healthz`, `GET /readyz`, sin clave): sirven para
@@ -333,6 +337,7 @@ func leer(res *http.Response) (recs []Recomendacion, reintentable bool, err erro
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| `1.1.0` | 2026-11-06 | Compatible: límite de tasa por clave en el gateway, con el `code` nuevo `LIMITE_EXCEDIDO` (`429` + `Retry-After`). |
 | `1.0.0` | 2026-10-23 | Primera versión operativa: `GET /api/v1/proveedores/recomendados`, autenticación por `X-API-Key`, errores `problem+json` con cinco `code`. Contrato formal en `openapi.yaml`. |
 
 ## Decisiones registradas

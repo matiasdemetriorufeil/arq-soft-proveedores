@@ -1,8 +1,8 @@
 # ADR-011 — Observabilidad (D11)
 
-- **Estado:** aceptado e implementado para **logs y trazas**; **propuesto** para métricas, tablero, objetivo de servicio y alertas (no implementados todavía)
+- **Estado:** aceptado e implementado: logs y trazas (Entrega 2); métricas, tablero, objetivo de servicio y alertas (06/11)
 - **Fecha:** 2026-10-22
-- **Entrega:** 2 (23/10) — primera versión, como pide la consigna 6.3. La versión completa va a la presentación final.
+- **Entrega:** 2 (23/10) — primera versión, como pide la consigna 6.3. Versión completa el 06/11 (Entrega 3).
 - **Decisión de la consigna:** D11. Estrategia de logs, métricas, trazas y tableros, junto con el objetivo de servicio y los criterios de alerta.
 
 ## Contexto
@@ -33,6 +33,21 @@ El sistema son dos procesos Go (`api-gateway` y dos réplicas de `proveedores-se
 
 Detalle operativo y guion de la demo en [`docs/observabilidad/README.md`](../observabilidad/README.md).
 
+### Métricas, tablero y alertas (06/11)
+
+Es la opción 3 recortada a lo que pide la 2.10: **Prometheus y Grafana, sin Loki ni Tempo** (los logs y las trazas ya los resuelven `slog` y Jaeger).
+
+- **Dónde se mide: en el gateway.** Es donde el cliente vive la capacidad, así que tasa, errores y latencia medidos ahí son los que importan para el objetivo de servicio. Métricas (`internal/gateway/metricas.go`, con `client_golang` y un registro propio):
+  - `gateway_http_requests_total{ruta, metodo, status}`
+  - `gateway_http_request_duration_seconds{ruta}`, un histograma con un corte en **0,3 s**, el umbral del objetivo
+  - `gateway_limite_rechazos_total` (los `429` del límite de tráfico, [ADR-010](ADR-010-resiliencia.md))
+  - `gateway_replicas_sanas`
+- **La etiqueta `ruta` es el patrón del mux** (`r.Pattern`, por ejemplo `/api/v1/stock/`), nunca el path: con el SKU adentro, cada producto sería una serie nueva.
+- **Puerto aparte (9091) y sin publicar.** Prometheus lo lee por la red interna; `/metrics` no queda en la URL pública.
+- **Objetivo de servicio** de la capacidad (`GET /api/v1/proveedores/recomendados`), medido en el gateway: **p95 por debajo de 300 ms y menos del 1 % de respuestas 5xx**. Los 4xx no cuentan: son errores del cliente, incluido el `429`.
+- **Tres alertas** (`infra/prometheus/alertas.yml`), cada una con `for` para no saltar por un pico aislado: `LatenciaP95Alta` (p95 > 300 ms durante 2 min), `ErroresAltos` (5xx > 1 % durante 2 min) y `SinReplicasSanas` (ninguna réplica en el reparto durante 30 s).
+- **Tablero** (`infra/grafana/tableros/capacidad.json`, se carga solo al arrancar): requests por segundo, % de 5xx, p95, réplicas sanas, tasa por ruta y status, p50/p95/p99 con la línea del objetivo, rechazos por límite y alertas activas.
+
 ## Por qué
 
 - **Un flujo, una traza.** El `traceparent` viaja del gateway al servicio, y el `QueryTracer` de pgx cuelga la consulta del span de la request: la traza del flujo principal tiene cuatro spans, del borde del sistema hasta el SQL.
@@ -42,7 +57,9 @@ Detalle operativo y guion de la demo en [`docs/observabilidad/README.md`](../obs
 
 ## Consecuencias aceptadas
 
-- **Todavía no cumplimos la 2.10 completa:** no hay métricas, ni tablero, ni objetivo de servicio, ni alertas. Es deliberado para esta entrega y es lo que falta para la versión completa de este ADR (ver abajo).
+- **Las alertas no notifican.** Se ven en Prometheus (`/alerts`) y en el tablero, pero no hay Alertmanager que mande un mensaje: para el TP alcanza con verlas.
+- **Solo el gateway expone métricas.** Los servicios no exponen las suyas (pool de conexiones, ciclo de reposición, sincronización con FAV); para eso están los logs y las trazas.
+- **El objetivo de 300 ms es holgado a propósito:** hoy el p95 está en milisegundos. Sirve para detectar una degradación seria (la base lenta, el gateway colapsado), no para afinar.
 - **Jaeger `all-in-one` guarda las trazas en memoria.** Reiniciarlo las borra: no hay historial para comparar entre días ni después del Game Day.
 - **Se exporta el 100 % de las trazas**, sin muestreo. Alcanza al volumen de la demo; con carga real (la prueba de D13) hay que muestrear.
 - **Los sondeos de salud dominan los logs.** Medido en una réplica: **363 líneas de `/healthz` contra 12 de la capacidad**. Se filtraron de las trazas, no de los logs.
@@ -57,9 +74,18 @@ Mediciones del 22/10 sobre el sistema levantado con `docker compose up`:
 - **Latencia de la capacidad medida en el gateway** (campo `duration_ms`, n=23): mediana **1,99 ms**, p95 **4,92 ms**, máximo **8,48 ms**. Comparable con los 1–3 ms que midió el [ADR-002](ADR-002-arquitectura-interna.md) contra el servicio directo, así que el gateway y la instrumentación no agregan un costo visible a este volumen. Es una medición puntual; la de D13 la reemplaza.
 - **Con Jaeger detenido**, la capacidad sigue respondiendo 200.
 
+Mediciones del 06/11 sobre el sistema completo (14 contenedores) levantado con `docker compose up`:
+
+- **Prometheus lee al gateway** (`health: up`) y las tres reglas cargan sin errores.
+- **Etiquetas acotadas:** después de consultar dos SKUs distintos de stock, `/metrics` tiene una sola serie `ruta="/api/v1/stock/"` y ningún SKU como etiqueta (también lo cubre un test).
+- **Una ráfaga de 1 000 requests** quedó en las métricas como 173 `200` y 827 `429`, y `gateway_limite_rechazos_total` llegó a 827: los mismos números que vio el cliente.
+- **Alerta disparada de verdad:** con las dos réplicas detenidas, `SinReplicasSanas` pasó a `firing` **48 s** después (5 s del sondeo de salud, 5 s del scrape y los 30 s del `for`), mientras la capacidad respondía `502 NO_DISPONIBLE`.
+- **Grafana** carga solo el datasource y el tablero, y el datasource responde a la consulta de salud.
+
 ## Qué nos haría cambiar de idea
 
 - **Si hace falta historial de trazas** —comparar antes y después del Game Day, o revisar una falla del día anterior— Jaeger con almacenamiento persistente, o Tempo.
-- **Si aparece una pregunta que las trazas no contestan** ("¿cuántos 5xx por minuto?", "¿cuándo empezó?"), hay que agregar métricas: Prometheus con las cuatro señales RED por ruta, un tablero en Grafana y una alerta sobre la tasa de 5xx y el p95. Eso es la versión completa de este ADR y es lo que falta para la 2.10.
+- **Si alguien tiene que enterarse de una alerta sin mirar el tablero**, sumar Alertmanager con un canal (mail o Discord).
+- **Si una falla no se ve desde el gateway** (por ejemplo, el ciclo de reposición trabado), exponer métricas propias en ese servicio.
 - **Si el volumen de logs molesta**, dejar de loguear los sondeos de salud o bajarlos a `DEBUG`.
 - **Si sumamos un tercer servicio con otro lenguaje**, revisar que el propagador W3C siga siendo el denominador común.

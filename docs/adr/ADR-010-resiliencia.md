@@ -1,6 +1,6 @@
 # ADR-010 — Resiliencia (D10)
 
-- **Estado:** aceptado e implementado para `api-gateway`, `proveedores-service` (timeouts, salida del reparto por salud, reintento acotado, error inmediato ante la base caída, telemetría opcional) e `import-service` (circuit breaker, reintentos y última importación válida frente a FAV; outbox frente a RabbitMQ); y `stock-service` (timeout, reintentos con la misma `Idempotency-Key` y consulta de respaldo en los pedidos a FAV, 06/11); **propuesto** para la caché como respaldo y el límite de tráfico en el gateway
+- **Estado:** aceptado e implementado para `api-gateway`, `proveedores-service` (timeouts, salida del reparto por salud, reintento acotado, error inmediato ante la base caída, telemetría opcional) e `import-service` (circuit breaker, reintentos y última importación válida frente a FAV; outbox frente a RabbitMQ); y `stock-service` (timeout, reintentos con la misma `Idempotency-Key` y consulta de respaldo en los pedidos a FAV, 06/11); límite de tráfico en el gateway (token bucket por identidad, 06/11); **propuesto** para la caché como respaldo
 - **Fecha:** 2026-10-23
 - **Entrega:** 2 (23/10)
 - **Decisión de la consigna:** D10. Comportamiento ante fallas y mecanismos seleccionados para limitar su propagación o degradar el sistema de manera controlada.
@@ -50,7 +50,18 @@ Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.
 
 - **Circuit breaker** sobre las llamadas a FAV, la tienda de ropa: abre con 5 fallas seguidas, se queda abierto 30 s y deja pasar una prueba (medio abierto).
 - **Respaldo desde la caché:** si PostgreSQL no responde pero hay ofertas en Redis, servirlas marcadas como posiblemente desactualizadas. Se decide en la Entrega 3, junto con la caché.
-- **Límite de tráfico en el gateway**, por API key (token bucket) y de concurrencia total, para rechazar rápido lo que exceda en lugar de colapsar ([ADR-013](ADR-013-capacidad-y-costos.md)). La presentación pide "control de tráfico" en el punto de entrada.
+- **Límite de concurrencia total en el gateway**, además del límite por identidad (que ya está, ver abajo), si una rampa con muchas claves distintas vuelve a terminar en `504`.
+
+### Límite de tráfico en el gateway (implementado el 06/11)
+
+La presentación pide "control de tráfico" en el punto de entrada, y el test de carga mostró que sin él el gateway colapsa con `504` en lugar de rechazar rápido lo que sobra ([ADR-013](ADR-013-capacidad-y-costos.md)).
+
+- **Token bucket por identidad** (`services/api-gateway/internal/gateway/limite.go`): cada API key y cada usuario logueado tienen su balde, de **100 fichas** (la ráfaga) que se rellena a **50 por segundo**. Con 1 200 req/s medidas como capacidad, una clave sola no puede llevarse más del 4 % de forma sostenida.
+- **Se aplica después de autenticar**, así que una request sin credenciales se corta con `401` y no gasta el balde de nadie.
+- **Lo que excede recibe `429 LIMITE_EXCEDIDO` con `Retry-After`** (segundos enteros, redondeado para arriba) **sin llegar al servicio**. Es un `code` nuevo del contrato (versión 1.1.0, [ADR-008](ADR-008-contrato-propio.md)).
+- **El login tiene su propio límite, por IP** (5 intentos de golpe y uno cada 5 s), contra la fuerza bruta.
+- **Relleno perezoso**: el balde se recalcula al consultarlo, sin un goroutine por clave, y los baldes que no se usan en 10 minutos se borran.
+- Configurable por entorno (`LIMITE_POR_SEGUNDO`, `LIMITE_RAFAGA`); `0` lo apaga, por ejemplo para medir la capacidad máxima con k6.
 
 ## Por qué
 
@@ -65,7 +76,8 @@ Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.
 - **Con la base lenta, cada request espera 2 s** antes del `503`, y mientras tanto ocupa una conexión del pool.
 - **Una réplica recién caída le cuesta un reintento** (latencia extra) a la primera request que le toca; si no llega ninguna request, el sondeo la detecta en hasta 5 s.
 - **Un error de transporte aislado también saca a una réplica sana** del reparto hasta el próximo sondeo ([ADR-005](ADR-005-comunicacion.md)).
-- **No hay límite de tráfico.** Por encima de su capacidad, el gateway puede colapsar (atender menos y devolver `504`) en lugar de rechazar rápido lo que sobra: pasó en una de las dos rampas del test de carga ([ADR-013](ADR-013-capacidad-y-costos.md)).
+- **El límite es por identidad, no global.** Muchas claves distintas a la vez todavía pueden llevar al gateway por encima de su capacidad; hoy hay dos consumidores (el grupo de paneles solares y nuestro frontend), así que no pasa.
+- **El balde vive en la memoria del gateway.** Con una sola instancia alcanza; con varias, cada una tendría el suyo y el límite real se multiplicaría (habría que moverlo a Redis).
 - **El apagado ordenado puede quedar cortado.** `docker compose stop` espera 10 s antes de matar el proceso, y el gateway puede necesitar hasta 10 s para terminar las requests más el tiempo de vaciar las trazas. Falta `stop_grace_period` en el compose.
 - **Todavía no hay POSTMORTEM**: la caída controlada con su informe se hace antes de la defensa.
 
@@ -84,6 +96,13 @@ Mediciones del 03/11 sobre `import-service` (tests unitarios y de integración, 
 - **FAV caído:** el ranking conserva las 2 ofertas vigentes de la prueba y `/estado` informa el breaker abierto (`internal/sincronizacion`).
 - **RabbitMQ caído:** los eventos quedan en el outbox y salen en orden al volver; publicar sin broker falla en menos de 6 s, sin colgar la sincronización.
 - **Falta medirlo con el sistema levantado** (Game Day): cortar el mock de FAV con `POST /_mock/modo {"modo":"caido"}` y detener RabbitMQ con `docker compose stop rabbitmq`.
+
+Mediciones del 06/11 sobre el límite de tráfico, con el sistema completo levantado:
+
+- **Ráfaga de 1 000 requests con la misma clave, 50 en paralelo** (665 req/s durante 1,5 s): **173 `200` y 827 `429`**, todas con `Retry-After: 1`. Es lo que predice el token bucket: 100 de la ráfaga más 50 por segundo durante 1,5 s, unas 175. Ninguna de las rechazadas llegó a las réplicas.
+- **Un usuario logueado tiene su propio balde**: sigue recibiendo `200` mientras la API key está agotada (test `TestLimiteExcedidoDevuelve429ConRetryAfter`).
+- **Tests unitarios** del relleno con reloj simulado, de que los `401` no gastan el balde y del límite del login por IP (`entrega3_test.go`).
+- **Falta**: repetir la rampa de k6 de [ADR-013](ADR-013-capacidad-y-costos.md) con muchas claves para ver si el `504` desaparece.
 
 ## Qué nos haría cambiar de idea
 

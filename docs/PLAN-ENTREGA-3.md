@@ -14,7 +14,7 @@ Reparto del trabajo entre los 4 integrantes para llegar a la Entrega 3 y a la pr
 | 1 (Fede) | Infraestructura, mensajería e importación de FAV | ✅ Hecho (rama `feat/import-service`): compose con RabbitMQ, MongoDB, Redis, Meilisearch, `fav-mock` y base de stock; `pkg/mensajeria` y `docs/contracts/eventos.md`; `import-service` con test de contrato; ADR-014 y ADR-001, 003, 005, 009 y 010 actualizados. Falta: correr los tests de integración de MongoDB y `docker compose up` completo en una máquina con Docker |
 | 2 | Lectura rápida: caché y búsqueda en `proveedores-service` | ⏳ |
 | 3 | `stock-service`: reserva, reposición y pedidos a FAV | ✅ Hecho (rama `feat/stock-service`): servicio en capas con su base, reserva sin sobreventa con test de concurrencia, reposición automática, pedidos a FAV con `Idempotency-Key` y webhook HMAC (estos dos los terminó el Integrante 1), ADR-004 nuevo y ADR-002, 009 y SPEC al día. Probado contra PostgreSQL real y de punta a punta contra el mock de FAV. Falta: `docker compose up` completo y rutearlo en el gateway (Integrante 4) |
-| 4 | Entrada, frontend, nube y operación | ⏳ |
+| 4 (Santino) | Entrada, frontend, nube y operación | 🟡 Casi todo (rama `feat/frontend-nube`, sobre `feat/stock-service`): login JWT, límite de tráfico con `429`, ruteo a `stock-service`, frontend, métricas, tablero, 3 alertas, CI, contrato 1.1.0 y despliegue preparado (`docs/NUBE.md`); ADR-008, 010, 011 y `ARCHITECTURE.md` al día. Probado con los 14 contenedores levantados. Falta: crear la VM y publicar la URL, la ruta de búsqueda y la búsqueda en el frontend (cuando esté la parte 2) |
 
 Cada uno actualiza su fila cuando termina.
 
@@ -147,26 +147,29 @@ Documentación:
 Rama: `feat/frontend-nube`. Es lo que se ve en la presentación.
 
 Gateway:
-- [ ] Login de usuario (JWT) para el frontend, sin romper el `X-API-Key` del grupo de paneles solares
-- [ ] Rutas hacia búsqueda y `stock-service`
-- [ ] Límite de tráfico (token bucket por clave) con `429` en el contrato
+- [x] Login de usuario (JWT) para el frontend, sin romper el `X-API-Key` del grupo de paneles solares
+- [x] Ruta hacia `stock-service` (`/api/v1/stock/`, sin el webhook)
+- [ ] Ruta hacia búsqueda (espera el endpoint de la parte 2)
+- [x] Límite de tráfico (token bucket por clave) con `429` en el contrato (1.1.0)
 
 Frontend:
-- [ ] Web simple: login → buscar producto → ver el ranking de proveedores → reservar stock. **Llama solo al gateway**, nunca a FAV
+- [x] Web simple: login → elegir producto → ver el ranking de proveedores → reservar stock. **Llama solo al gateway**, nunca a FAV. Embebida en el gateway (`/`)
+- [ ] Búsqueda por texto en vez de la lista de SKUs (cuando esté Meilisearch)
 
 Nube:
-- [ ] VM con el compose (opción A de ADR-013) y la URL pública en `README.md` y `docs/contracts/README.md`
+- [x] Override `docker-compose.nube.yml`, script `infra/nube/instalar.sh` y guía `docs/NUBE.md`
+- [ ] Crear la VM y poner la URL pública en `README.md`, `docs/NUBE.md` y `docs/contracts/README.md`
 - [ ] Pasarle la URL y la clave al grupo de paneles solares
 
 Operación:
-- [ ] Métricas (Prometheus) y tablero (Grafana) con tasa, errores y latencia de la capacidad
-- [ ] Una alerta (por ejemplo, p95 > 300 ms o errores > 1 %)
-- [ ] Pipeline de CI (GitHub Actions) que corre los tests en cada push
+- [x] Métricas (Prometheus) y tablero (Grafana) con tasa, errores y latencia de la capacidad
+- [x] Alertas: p95 > 300 ms, errores > 1 % y sin réplicas sanas (esta última probada: dispara en 48 s)
+- [x] Pipeline de CI (GitHub Actions) que corre los tests en cada push (sin probar todavía en GitHub)
 
 Documentación:
-- [ ] ADR-008 actualizado si el contrato cambia (`429`, URL pública) y ADR-011 completo (métricas, objetivo de servicio, alerta)
-- [ ] ADR-010 con el límite de tráfico implementado
-- [ ] `ARCHITECTURE.md`: diagramas con los servicios nuevos y limitaciones actualizadas
+- [x] ADR-008 actualizado (`429`; la URL pública cuando exista) y ADR-011 completo (métricas, objetivo de servicio, alertas)
+- [x] ADR-010 con el límite de tráfico implementado y medido
+- [x] `ARCHITECTURE.md`: diagramas con los servicios nuevos y limitaciones actualizadas
 
 ## Cronograma
 

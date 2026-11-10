@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Proveedores recomendados
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Capacidad que publica el grupo **comparador de proveedores** para que otro
     sistema (hoy, el grupo de paneles solares) pueda preguntar **quién conviene
     para comprar un producto**: dado un SKU y una cantidad, devuelve las ofertas
     de los proveedores ordenadas por costo total.
 
-    - **Versión vigente del contrato:** `1.0.0` (ruta `/api/v1/...`).
+    - **Versión vigente del contrato:** `1.1.0` (ruta `/api/v1/...`).
     - **Entrada única:** todo se consume por el `api-gateway`. La ruta es la
       misma en el gateway y en `proveedores-service`, así que no hace falta
       saber que hay un gateway en el medio.
@@ -18,9 +18,10 @@ info:
     - **Errores:** `application/problem+json` (RFC 9457) con la extensión
       `code`. Cada `code` está explicado en
       [`docs/contracts/README.md`](https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md).
-    - **Sin límite de tasa en v1:** el gateway todavía no limita requests, así
-      que no existe un 429 en este contrato. Si se agrega, será un cambio
-      compatible y se documentará acá.
+    - **Límite de tasa (desde 1.1.0):** el gateway limita las requests por
+      clave con un token bucket (50 por segundo sostenidas, ráfagas de 100).
+      Lo que exceda recibe `429 LIMITE_EXCEDIDO` con el header `Retry-After`
+      (segundos): esperar ese tiempo y reintentar.
 
     Regla de negocio:
     `costo_total = precio_unitario × cantidad × (1 − descuento_pct/100) + flete`,
@@ -115,6 +116,8 @@ paths:
           $ref: '#/components/responses/NoAutorizado'
         '404':
           $ref: '#/components/responses/NoEncontrado'
+        '429':
+          $ref: '#/components/responses/LimiteExcedido'
         '502':
           $ref: '#/components/responses/SinReplicas'
         '503':
@@ -402,6 +405,32 @@ components:
                 code: RUTA_NO_ENCONTRADA
                 instance: /api/v1/otra-cosa
                 request_id: 5b1e0f6c8f3a4d2e9a7c1d4b6e8f0a21
+    LimiteExcedido:
+      description: |
+        `LIMITE_EXCEDIDO`. La clave superó el límite de requests por segundo
+        (token bucket en el gateway, desde 1.1.0). Lo devuelve solo el gateway,
+        sin llamar al servicio. Esperar los segundos de `Retry-After` y
+        reintentar.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestId'
+        Retry-After:
+          description: Segundos a esperar antes de reintentar (entero, al menos 1).
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#LIMITE_EXCEDIDO
+            title: Límite de tráfico excedido
+            status: 429
+            detail: se superó el límite de requests por segundo; reintentar después de Retry-After
+            code: LIMITE_EXCEDIDO
+            instance: /api/v1/proveedores/recomendados
+            request_id: 5b1e0f6c8f3a4d2e9a7c1d4b6e8f0a21
     BaseNoDisponible:
       description: |
         `NO_DISPONIBLE`. El servicio no pudo consultar su base (timeout de 2 s).

@@ -67,7 +67,8 @@ flowchart TB
 
     subgraph sistema["Comparador de proveedores — red interna de Docker"]
         direction TB
-        gw["<b>api-gateway</b> (Go)<br/>API key · X-Request-ID<br/>balanceo · trazas<br/><i>implementado</i>"]
+        gw["<b>api-gateway</b> (Go)<br/>API key o JWT · límite de tráfico<br/>balanceo · trazas · métricas<br/>sirve el frontend<br/><i>implementado</i>"]
+        prom["<b>Prometheus</b> + <b>Grafana</b><br/>métricas, tablero y alertas<br/><i>implementado</i>"]
 
         subgraph proveedores["proveedores-service — 2 réplicas idénticas · implementado"]
             direction LR
@@ -88,7 +89,7 @@ flowchart TB
     end
 
     paneles -- "HTTPS + X-API-Key" --> gw
-    usuario -. "frontend (propuesto)" .-> gw
+    usuario -- "frontend · login JWT" --> gw
 
     gw -- "HTTP · round-robin<br/>sondeo de /healthz" --> p1
     gw -- "HTTP · round-robin<br/>sondeo de /healthz" --> p2
@@ -105,7 +106,8 @@ flowchart TB
     p2 -. "OTLP/HTTP" .-> jaeger
     imp -. "OTLP/HTTP" .-> jaeger
 
-    gw -. "propuesto" .-> stock
+    gw -- "HTTP · /api/v1/stock/" --> stock
+    prom -. "scrape :9091" .-> gw
     stock -. "recomendación de proveedor" .-> p1
     stock -. "pedidos y webhook" .-> ropa
     stock -.-> pg
@@ -113,7 +115,7 @@ flowchart TB
     p1 -.-> meili
 
     classDef propuesto fill:#eeeeee,stroke:#999999,stroke-dasharray: 4 3,color:#555555
-    class stock,redis,meili,usuario propuesto
+    class redis,meili propuesto
 ```
 
 La línea punteada indica una interacción **propuesta**. La forma de cada una
@@ -129,9 +131,9 @@ Los criterios de corte están en [ADR-001](adr/ADR-001-limites-de-los-servicios.
 
 | Servicio | Estado | Responsabilidad | Almacenamiento | Estilo interno |
 |---|---|---|---|---|
-| `api-gateway` | implementado | Entrada única: valida `X-API-Key`, genera o respeta `X-Request-ID`, abre el span padre de la traza, reparte la capacidad entre réplicas y las saca del reparto si caen. **Sin datos ni lógica de dominio.** | — | Proxy inverso con balanceador propio |
+| `api-gateway` | implementado | Entrada única: autentica con `X-API-Key` o con el JWT del login, limita el tráfico por identidad (token bucket, `429`), genera o respeta `X-Request-ID`, abre el span padre de la traza, reparte la capacidad entre réplicas y las saca del reparto si caen, publica `stock-service` en `/api/v1/stock/`, expone métricas y sirve el frontend. **Sin datos ni lógica de dominio.** | — | Proxy inverso con balanceador propio |
 | `proveedores-service` | implementado | Calcula el costo total de cada oferta, descarta las que no tienen stock suficiente y devuelve las más baratas. Publica la capacidad compartida. | PostgreSQL | Hexagonal ([ADR-002](adr/ADR-002-arquitectura-interna.md)) |
-| `stock-service` | implementado | Stock propio, reserva sin sobreventa, punto de reorden, órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`), pedidos a FAV y su webhook. Todavía no está ruteado en el gateway. | PostgreSQL (base `stock`, con su propio usuario) | En capas: `handler → service → repository` ([ADR-002](adr/ADR-002-arquitectura-interna.md)) |
+| `stock-service` | implementado | Stock propio, reserva sin sobreventa, punto de reorden, órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`), pedidos a FAV y su webhook. Publicado por el gateway en `/api/v1/stock/` (el webhook no). | PostgreSQL (base `stock`, con su propio usuario) | En capas: `handler → service → repository` ([ADR-002](adr/ADR-002-arquitectura-interna.md)) |
 | `import-service` | implementado | Baja el catálogo de FAV cada 5 min, lo traduce a ofertas (capa anticorrupción), lo compara con lo último avisado y publica `ListaPreciosActualizada`. Sin tráfico de afuera: solo `/healthz`, `/readyz`, `/estado` y `POST /sincronizar` en la red interna. | MongoDB | Puertos y adaptadores livianos: `dominio` y `sincronizacion` no conocen MongoDB, RabbitMQ ni HTTP |
 | `fav-mock` | implementado (solo local) | Hace de FAV mientras no tengamos su URL: cumple su contrato v1.1.0 (catálogo, pedidos con estado y webhook firmado) y simula fallas para el Game Day. No es parte del sistema. | — | — |
 
@@ -232,13 +234,18 @@ volumen, que arma la base de `stock-service` con su propio usuario
 | `mongodb` | `mongo:8.0` | — | `mongosh` con `ping` |
 | `redis` | `redis:7.4-alpine`, sin persistencia | — | `redis-cli ping` |
 | `meilisearch` | `getmeili/meilisearch:v1.14` | — | `curl` a `/health` |
+| `stock-service` | construida del repo (distroless) | — | `/sonda` consulta `/readyz` |
+| `prometheus` | `prom/prometheus:v3.5.0` | `9090` (`PUERTO_PROMETHEUS`) | `wget` a `/-/ready` |
+| `grafana` | `grafana/grafana:12.1.1` | `3000` (`PUERTO_GRAFANA`) | — |
 
 - **Red:** una red interna (`interna`). Al host salen el gateway (la única
-  entrada al sistema) y las consolas de operación: la UI de Jaeger, la de
-  RabbitMQ y el control del mock de FAV, que hace de sistema externo. Las bases,
+  entrada al sistema, que además sirve el frontend) y las consolas de
+  operación: Jaeger, RabbitMQ, Prometheus, Grafana y el control del mock de
+  FAV, que hace de sistema externo. El puerto de métricas del gateway (9091) no
+  se publica. Las bases,
   el broker y los servicios quedan inaccesibles desde afuera.
-- **Volúmenes:** `datos-postgres`, `datos-mongodb`, `datos-rabbitmq` y
-  `datos-meilisearch`. Redis no tiene: es caché y se vuelve a llenar.
+- **Volúmenes:** `datos-postgres`, `datos-mongodb`, `datos-rabbitmq`,
+  `datos-meilisearch`, `datos-prometheus` y `datos-grafana`. Redis no tiene: es caché y se vuelve a llenar.
 - **Orden de arranque:** el gateway espera a que las dos réplicas estén sanas,
   las réplicas esperan a Postgres e `import-service` espera a MongoDB. Jaeger,
   RabbitMQ y FAV **no** son dependencias duras: sin ellos todo arranca y responde
@@ -248,6 +255,13 @@ volumen, que arma la base de `stock-service` con su propio usuario
 - **Dos réplicas con nombre** y no `deploy.replicas`: el gateway necesita dos
   nombres DNS distintos para repartir de verdad
   ([ADR-012](adr/ADR-012-balanceo-de-carga.md)).
+- **Nube:** una VM con el mismo compose más `docker-compose.nube.yml`, que deja
+  solo el gateway hacia afuera (puerto 80) y ata las consolas a `127.0.0.1`
+  (opción A de [ADR-013](adr/ADR-013-capacidad-y-costos.md)). Paso a paso en
+  [`NUBE.md`](NUBE.md).
+- **CI:** GitHub Actions (`.github/workflows/ci.yml`) corre `go vet` y los tests
+  unitarios de los seis módulos en cada push, después los de integración con
+  testcontainers y el build de las imágenes.
 
 ## 9. Observabilidad
 
@@ -255,7 +269,10 @@ Logs JSON (`log/slog`) correlacionados con `request_id` y `trace_id`, y trazas
 OpenTelemetry hasta la consulta a PostgreSQL. `import-service` usa el mismo
 paquete: cada sincronización es un span con la llamada a FAV adentro, sus logs
 llevan `trace_id` y el evento sale con `traceparent` para que el consumidor
-continúe la traza. No hay métricas ni tablero todavía.
+continúe la traza. El gateway expone métricas Prometheus (tasa, errores y
+latencia por ruta, rechazos por límite, réplicas sanas); Prometheus evalúa
+tres alertas (p95 > 300 ms, 5xx > 1 %, sin réplicas sanas) y Grafana carga
+solo el tablero de la capacidad (`infra/`).
 Detalle y límites en [ADR-011](adr/ADR-011-observabilidad.md).
 
 ## 10. Decisiones arquitectónicas
@@ -271,8 +288,8 @@ Detalle y límites en [ADR-011](adr/ADR-011-observabilidad.md).
 | D7 | Caché | [ADR-007](adr/ADR-007-cache.md) | propuesto |
 | D8 | Contrato propio | [ADR-008](adr/ADR-008-contrato-propio.md) | aceptado |
 | D9 | Consumo del proveedor | [ADR-009](adr/ADR-009-consumo-proveedor.md) | aceptado: catálogo y pedidos con webhook, con test de contrato |
-| D10 | Resiliencia | [ADR-010](adr/ADR-010-resiliencia.md) | aceptado (gateway, proveedores e import, con circuit breaker hacia FAV); resto propuesto |
-| D11 | Observabilidad | [ADR-011](adr/ADR-011-observabilidad.md) | aceptado para logs y trazas; resto propuesto |
+| D10 | Resiliencia | [ADR-010](adr/ADR-010-resiliencia.md) | aceptado (gateway con límite de tráfico, proveedores, import con circuit breaker hacia FAV, stock); caché como respaldo propuesta |
+| D11 | Observabilidad | [ADR-011](adr/ADR-011-observabilidad.md) | aceptado e implementado: logs, trazas, métricas, tablero, objetivo de servicio y alertas |
 | D12 | Balanceo de carga | [ADR-012](adr/ADR-012-balanceo-de-carga.md) | aceptado |
 | D13 | Capacidad y costos | [ADR-013](adr/ADR-013-capacidad-y-costos.md) | aceptado (test de carga del 23/10: 1 200 req/s sostenidas) |
 
@@ -290,8 +307,9 @@ grupal pide actualizar.
 - **Tres servicios de dominio, sin `catalog-service`.** `proveedores-service`,
   `import-service` y `stock-service` están implementados; `catalog-service` sale
   del alcance ([ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md), a validar).
-  `stock-service` todavía no está ruteado en el gateway.
-- **Sin frontend.** No hay interfaz web.
+- **Frontend mínimo.** Login → elegir SKU → ranking → stock propio → reservar.
+  Sin búsqueda por texto hasta que esté Meilisearch: el producto se elige de una
+  lista con los SKUs del seed.
 - **El evento se publica pero nadie lo consume.** `import-service` publica
   `ListaPreciosActualizada` con outbox y confirmaciones, y la DLQ está armada;
   falta el consumidor idempotente en `proveedores-service`, así que las ofertas de
@@ -306,20 +324,29 @@ grupal pide actualizar.
   (el catálogo sí).
 - **Los tests de integración de MongoDB no se corrieron todavía.** Están escritos
   y compilan; los de RabbitMQ sí se corrieron contra un broker real.
-- **Sin despliegue en la nube.** La capacidad corre solo en local; falta la URL
-  pública que pide la presentación.
+- **La nube está preparada pero no creada.** El override, el script de
+  instalación y la guía están ([`NUBE.md`](NUBE.md)); falta crear la VM y
+  publicar la URL. Sin HTTPS (necesita dominio).
 
 **Calidad y operación**
 
-- **Sin métricas, tablero ni alertas.** Solo hay logs y trazas.
-- **Sin control de tráfico.** El gateway valida la clave pero no limita requests.
+- **Las alertas no notifican.** Prometheus las evalúa y se ven en su UI y en el
+  tablero, pero no hay Alertmanager que mande un mail o un mensaje.
+- **Las métricas son solo del gateway.** Alcanzan para la capacidad tal como la
+  ve el cliente; los servicios no exponen las suyas (pool de conexiones, ciclo
+  de reposición, sincronización con FAV).
+- **El límite de tráfico vive en la memoria del gateway.** Con una sola
+  instancia alcanza; con varias, cada una tendría su propio balde.
+- **Usuarios del frontend en una variable de entorno** (`USUARIOS`), con la
+  contraseña en claro en el `.env` y sin roles. Es de demo: un sistema real
+  tendría una tabla de usuarios con hashes (bcrypt/argon2) o un proveedor de
+  identidad. El JWT no se puede revocar antes de que venza (1 h).
 - **El gateway es el cuello de botella y puede colapsar bajo sobrecarga.** Es el
   componente que más CPU gasta (40 % del total por request) y usa el transporte HTTP
   por defecto de Go, que reutiliza solo 2 conexiones por réplica; con el transporte
   ajustado, su CPU bajó un 31 % en el experimento. La capacidad declarada es de
   1 200 req/s; desde ~1 600 req/s el resultado varía entre corridas, y una rampa
   colapsó en ese escalón con `504` ([ADR-013](adr/ADR-013-capacidad-y-costos.md)).
-- **Sin pipeline de CI** que corra los tests en cada push.
 - **PostgreSQL es un punto único de falla.** El balanceo cubre al servicio, no a
   la base.
 - **Jaeger guarda las trazas en memoria, sin tope, y se exporta el 100 %**, sin
