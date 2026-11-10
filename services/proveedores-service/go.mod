@@ -2,15 +2,21 @@ module github.com/matiasdemetriorufeil/arq-soft-proveedores/services/proveedores
 
 go 1.26.1
 
-// El servicio usa el paquete compartido de observabilidad por ruta relativa,
-// igual que el gateway: así compila dentro del go.work (desarrollo) y también
-// solo, con el contexto de build de la imagen Docker, que no incluye el
-// workspace.
+// El servicio usa los paquetes compartidos por ruta relativa, igual que el
+// gateway: así compila dentro del go.work (desarrollo) y también solo, con el
+// contexto de build de la imagen Docker, que no incluye el workspace.
 require (
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/matiasdemetriorufeil/arq-soft-proveedores/pkg/mensajeria v0.0.0
 	github.com/matiasdemetriorufeil/arq-soft-proveedores/pkg/observabilidad v0.0.0
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
+)
+
+require (
+	github.com/rabbitmq/amqp091-go v1.16.0
+	github.com/redis/go-redis/v9 v9.23.0
+	github.com/testcontainers/testcontainers-go/modules/rabbitmq v0.44.0
 )
 
 require (
@@ -19,6 +25,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
+	go.uber.org/atomic v1.12.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
@@ -79,9 +86,12 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0
 	golang.org/x/crypto v0.57.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sync v0.24.0
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )
 
-replace github.com/matiasdemetriorufeil/arq-soft-proveedores/pkg/observabilidad => ../../pkg/observabilidad
+replace (
+	github.com/matiasdemetriorufeil/arq-soft-proveedores/pkg/mensajeria => ../../pkg/mensajeria
+	github.com/matiasdemetriorufeil/arq-soft-proveedores/pkg/observabilidad => ../../pkg/observabilidad
+)

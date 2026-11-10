@@ -1,0 +1,1 @@
+{"time":"2026-11-06T18:33:57.098953916Z","level":"INFO","msg":"reconstrucción terminada","service":"reindexar","duracion_ms":312}

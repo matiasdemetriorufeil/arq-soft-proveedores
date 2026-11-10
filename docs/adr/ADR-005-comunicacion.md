@@ -1,6 +1,6 @@
 # ADR-005 — Comunicación entre servicios (D5)
 
-- **Estado:** aceptado e implementado para la comunicación síncrona `api-gateway → proveedores-service → PostgreSQL`, la llamada `import-service → FAV`, la llamada `stock-service → proveedores-service` (06/11) y la **publicación** de `ListaPreciosActualizada` (RabbitMQ, outbox y confirmaciones); **propuesto** para el **consumo** del evento en `proveedores-service` (Integrante 2) y las llamadas de `stock-service` a FAV. El evento `StockBajoMinimo` se **retiró** (ver abajo).
+- **Estado:** aceptado e implementado para la comunicación síncrona `api-gateway → proveedores-service → PostgreSQL`, la llamada `import-service → FAV`, la llamada `stock-service → proveedores-service` (06/11) y la **publicación y el consumo** de `ListaPreciosActualizada` (RabbitMQ, outbox, confirmaciones, consumidor idempotente y DLQ); **propuesto** para las llamadas de `stock-service` a FAV. El evento `StockBajoMinimo` se **retiró** (ver abajo).
 - **Fecha:** 2026-10-23 · actualizado 2026-11-03 y 2026-11-06
 - **Entrega:** 2 (23/10), primera versión publicada (la inicial de la Entrega 1 no se presentó); actualización en la 3 (06/11).
 - **Decisión de la consigna:** D5. Uso de interacciones síncronas y asíncronas, tiempos de espera, reintentos, eventos e idempotencia.
@@ -45,7 +45,7 @@ Código: [`proxy.go`](../../services/api-gateway/internal/gateway/proxy.go), [`b
 - **Una réplica fija es un punto único de falla aceptado:** si `proveedores-service-1` está caída, el ciclo no consulta la otra réplica y las órdenes se crean sin proveedor. Se acepta porque el faltante se detecta igual y la orden se reintenta; balancear acá exigiría meter el gateway en el camino o descubrir réplicas, que es lo que [ADR-012](ADR-012-balanceo-de-carga.md) resuelve solo para el tráfico de entrada.
 - `import-service → FAV` (catálogo, **implementado** en `internal/fav`) y `stock-service → FAV` (pedidos, propuesto): timeout de 3 s y hasta 3 reintentos solo ante timeout, `429`, `500` o `503`; los reintentos de un pedido repiten su `Idempotency-Key`. Detalle en [ADR-009](ADR-009-consumo-proveedor.md).
 
-### Asíncrono (RabbitMQ: publicación implementada, consumo propuesto)
+### Asíncrono (RabbitMQ: publicación y consumo implementados)
 
 | Evento | Publica | Consume | Efecto |
 |---|---|---|---|
@@ -66,9 +66,9 @@ El formato, la topología y lo que tiene que hacer el consumidor están en [`doc
 
 - **Formato:** JSON con un sobre común: `evento_id` (UUID), `tipo`, `version`, `ocurrido_en`, `traceparent` y `datos`. *(implementado)*
 - **Publicación sin pérdida:** *outbox*. En `import-service` el evento se guarda **dentro del mismo documento de MongoDB** que la importación (una escritura de un documento es atómica), y un publicador lo envía con *publisher confirms*. Si el broker no está, el evento espera en MongoDB y se reintenta cada 15 s, en orden de `secuencia`. En los servicios con PostgreSQL, el outbox es una tabla en la misma transacción. *(implementado en `import-service`)*
-- **Entrega al menos una vez** y **consumidor idempotente:** el consumidor registra `evento_id` en una tabla `eventos_procesados` dentro de la misma transacción que aplica el efecto; un duplicado choca con la clave primaria y se descarta con `ack`.
-- **Mensajes fallidos:** hasta **3 entregas**; después van a la cola `*.dlq` por el *dead-letter exchange*. El conteo lo lleva RabbitMQ: la cola es *quorum* con `x-delivery-limit: 3`, así el consumidor no tiene que contar reintentos. La reentrega es inmediata; si el consumidor necesita espera creciente, la hace antes de devolver el mensaje. Un mensaje que no se puede parsear va directo a la DLQ, sin reintentos. *(topología implementada y probada contra RabbitMQ real)*
-- **Orden por proveedor:** cada evento trae una `secuencia` que crece; el consumidor descarta una menor o igual a la última que aplicó, así un reintento atrasado no pisa precios más nuevos.
+- **Entrega al menos una vez** y **consumidor idempotente:** el consumidor registra `evento_id` en una tabla `eventos_procesados` dentro de la misma transacción que aplica el efecto; un duplicado choca con la clave primaria y se descarta con `ack`. *(implementado)*
+- **Mensajes fallidos:** hasta **3 entregas**; después van a la cola `*.dlq` por el *dead-letter exchange*. RabbitMQ lleva la cuenta en el `x-delivery-count` de cada mensaje, pero `x-delivery-limit: 3` cuenta devoluciones y recién descartaría en la **cuarta** entrega (medido contra el broker real): por eso la tercera entrega fallida la manda a la DLQ el consumidor. Antes de devolver un mensaje espera 5 s y después 10 s. Un mensaje que no se puede parsear, de tipo o versión desconocidos o con datos que la base nunca aceptaría va directo a la DLQ, sin reintentos. *(implementado y probado contra RabbitMQ real)*
+- **Orden por proveedor:** cada evento trae una `secuencia` que crece; el consumidor descarta una menor o igual a la última que aplicó, así un reintento atrasado no pisa precios más nuevos. Como los eventos son deltas, descartar uno viejo perdería datos si llegó tarde por una carrera: por eso la cola tiene `x-single-active-consumer` y el consumidor pide de a un mensaje. Con dos réplicas consume una sola, y si cae, toma la otra. *(implementado y probado contra RabbitMQ real)*
 - **Retraso aceptable** entre la publicación y el efecto: **menos de 5 s** en condiciones normales.
 
 ### Avisos entrantes de terceros (propuesto)
@@ -84,10 +84,14 @@ El webhook `pedido.actualizado` de FAV llega por HTTP a `stock-service`, directo
 
 ## Consecuencias aceptadas
 
-- **El evento se publica pero todavía nadie lo consume:** hasta que el Integrante 2 implemente el consumidor, los mensajes esperan en la cola `proveedores-service.lista-precios` y el requisito 2.5 (evento publicado **y consumido**) queda a medias.
+- **Un evento que agota sus entregas no frena a los siguientes:** va a la DLQ y los que siguen se aplican igual, así que lo que traía queda desfasado hasta que ese dato vuelva a cambiar o se reprocese desde la DLQ. Queda visible en la DLQ. Bloquear la cola por un hueco de `secuencia` frenaría todos los precios por un solo mensaje.
+- **Un mensaje reprocesado desde la DLQ después de que pasaron otros se descarta por secuencia vieja:** reprocesar sirve mientras no haya llegado uno más nuevo del mismo proveedor. Si llegó, hoy no hay forma de forzar una sincronización completa: `import-service` manda `completa` solo en la primera sincronización y después de un vencimiento, así que el dato queda desfasado hasta que vuelva a cambiar o pase una de esas dos cosas.
+- **Un consumidor por cola:** una réplica procesa todos los eventos. Con pocos eventos cada 5 min no pesa, y es el precio del orden.
+- **Cambiar los argumentos de la cola exige recrearla:** un volumen de RabbitMQ anterior a `x-single-active-consumer` responde `PRECONDITION_FAILED`. El remedio está en [`eventos.md`](../contracts/eventos.md).
+- **Si se pierde MongoDB y se conserva PostgreSQL,** las secuencias vuelven a 1 y se descartan: el remedio también está en [`eventos.md`](../contracts/eventos.md).
 - **Consistencia eventual** entre la lista importada y el ranking: durante unos segundos la capacidad puede devolver precios viejos.
 - **Un componente más (RabbitMQ)** en el compose y un outbox por cada servicio que publica.
-- **Sin espera creciente entre reentregas** del broker: tres fallas seguidas por una caída corta de la base pueden mandar un mensaje bueno a la DLQ. Se reprocesa moviéndolo de vuelta desde la UI de RabbitMQ.
+- **Una caída de la base de más de unos 15 s con eventos llegando** agota las esperas de 5 y 10 s y manda un mensaje bueno a la DLQ. Se reprocesa moviéndolo de vuelta desde la UI de RabbitMQ.
 - **El reintento del gateway no sería seguro para un endpoint con efectos**, porque puede repetir una request que la réplica ya recibió. Hoy solo existe el `GET`.
 - **Un error de transporte aislado saca a una réplica sana del reparto** hasta el próximo sondeo de salud (hasta 5 s).
 - **La escalera de timeouts depende de la configuración:** `TIMEOUT_UPSTREAM` se puede cambiar en `.env` y el gateway no valida que supere los 2 s de la base. Con un valor de 2 s o menos, el consumidor recibiría `504` donde correspondía un `503`.
@@ -102,7 +106,9 @@ El webhook `pedido.actualizado` de FAV llega por HTTP a `stock-service`, directo
 - **Comportamiento ante fallas y bajo carga** (réplica caída, base caída o pausada, errores por código bajo carga): ver [ADR-010](ADR-010-resiliencia.md) y [ADR-013](ADR-013-capacidad-y-costos.md).
 - **Publicación, contra RabbitMQ real** (03/11, tests de `services/import-service/internal/integracion/` corridos contra un RabbitMQ 3.12 local; el compose usa 4.1, con la misma semántica de colas quorum y `x-delivery-limit`): el broker confirma el mensaje y llega persistente con `message_id` = `evento_id`; un `nack` sin reencolar lo manda a la DLQ; después de **3** entregas reencoladas también; un mensaje que el broker devuelve por no tener cola (`mandatory`) **no** se marca como publicado; sin broker, publicar falla en menos de 6 s sin colgarse.
 - **Outbox** (tests unitarios de `internal/sincronizacion`): con el broker caído, dos sincronizaciones dejan **2** eventos pendientes y, al volver, se publican los **2 en orden** de secuencia.
-- **Cuando exista el consumidor:** retraso entre `ocurrido_en` y el procesamiento (objetivo p95 < 5 s), mensajes en la DLQ y duplicados descartados.
+- **Consumo, contra RabbitMQ 4.1 y PostgreSQL 16 reales** (06/11, tests de `services/proveedores-service/internal/adapters/rabbitmq/` y `.../postgres/`): un evento se aplica y un duplicado no; una secuencia vieja no cambia nada; la basura llega a la DLQ sin tocar la base; con la base caída hay **exactamente 3** entregas antes de la DLQ; con dos consumidores y 10 eventos, uno solo los ve, en orden, y al apagarlo el siguiente evento lo aplica el otro; una falla a mitad de la transacción no deja nada escrito.
+- **Retraso, solo el último tramo:** [ADR-006](ADR-006-busqueda.md) mide desde el commit del consumidor (`actualizado_en`, que se escribe en su transacción) hasta que el cambio se ve en la búsqueda. Deja afuera el outbox, la publicación, la cola y el consumidor.
+- **No medido:** el retraso entre la publicación y el efecto, así que el objetivo de **menos de 5 s** de arriba sigue sin evidencia; tampoco la cantidad de mensajes en la DLQ ni la de duplicados descartados en operación normal. Los tests y el simulacro de [ADR-010](ADR-010-resiliencia.md) prueban esos caminos, pero no los cuentan.
 
 ## Qué nos haría cambiar de idea
 

@@ -1,8 +1,8 @@
 # ADR-006 — Búsqueda (D6)
 
-- **Estado:** **propuesto**. No hay motor de búsqueda en el código ni en el compose; hoy la única consulta es por SKU exacto contra PostgreSQL.
-- **Fecha:** 2026-10-23
-- **Entrega:** 2 (23/10)
+- **Estado:** **aceptado**, con la medición de abajo. Implementado en [`internal/adapters/meilisearch`](../../services/proveedores-service/internal/adapters/meilisearch/), [`internal/indexacion`](../../services/proveedores-service/internal/indexacion/) y [`cmd/reindexar`](../../services/proveedores-service/cmd/reindexar/).
+- **Fecha:** 2026-10-23 · actualizado 2026-11-06
+- **Entrega:** 2 (23/10); implementación y medición en la 3 (06/11)
 - **Decisión de la consigna:** D6. Información indexada, criterios de consulta, actualización o reconstrucción del índice y retraso aceptable.
 
 ## Contexto
@@ -15,13 +15,13 @@ La capacidad que publicamos exige conocer el SKU (`PAN-550W-MONO`). Un comprador
 
 1. **Full-text de PostgreSQL** (`tsvector` + índice GIN). Sin componentes nuevos y siempre consistente, pero el complemento pide un motor de búsqueda real, y la tolerancia a errores de tipeo ("bateria litio", "invesor") requiere extensiones extra (`pg_trgm`).
 2. **Elasticsearch.** El estándar de la industria, con agregaciones potentes. Necesita una JVM con 1 a 2 GB de memoria solo para arrancar: en nuestras notebooks y en una VM chica de la nube es caro para 30 productos.
-3. **Meilisearch.** Un binario con tolerancia a errores de tipeo de fábrica, filtros, orden, paginación y facetas; corre con unos cientos de MB y tiene cliente oficial en Go. Menos potente en agregaciones y sin clúster en la versión libre.
+3. **Meilisearch.** Un binario con tolerancia a errores de tipeo de fábrica, filtros, orden, paginación y facetas; corre con unos cientos de MB y se habla con él por HTTP. Menos potente en agregaciones y sin clúster en la versión libre.
 
 ## Qué elegimos
 
 **Meilisearch**, con un índice de **productos** alimentado por `proveedores-service`, que es el dueño de `productos` y `ofertas` hoy ([ADR-001](ADR-001-limites-de-los-servicios.md)).
 
-**Qué se indexa:** un documento por producto, con lo que se busca y lo que se filtra ya calculado. Así quedaría `PAN-550W-MONO` con los datos del seed (`002_seed.sql`): `precio_min` es el menor precio unitario entre las ofertas **con stock**, por eso es el del proveedor 3 y no el de 189 497,29 del proveedor 1, que tiene stock 0.
+**Qué se indexa:** un documento por producto, con lo que se busca y lo que se filtra ya calculado. Así queda `PAN-550W-MONO` con los datos del seed (`002_seed.sql`): `precio_min` es el menor precio unitario entre las ofertas **con stock**, por eso es el del proveedor 3 y no el de 189 497,29 del proveedor 1, que tiene stock 0. `proveedores` y `proveedores_con_stock` también cuentan solo las ofertas con stock. El documento guardado lleva además un `id` derivado del SKU que no se devuelve en la búsqueda: el motor solo acepta letras, números, `-` y `_` como id, y un SKU de un proveedor externo no tiene por qué cumplirlo.
 
 ```json
 {
@@ -43,10 +43,10 @@ La capacidad que publicamos exige conocer el SKU (`PAN-550W-MONO`). Un comprador
 
 - Campos buscables: `nombre`, `sku`, `proveedores`.
 - Filtros: `categoria`, `proveedores`, `precio_min` por rango y `proveedores_con_stock > 0` (solo con stock).
-- Orden: `precio_min` ascendente o descendente, y relevancia por defecto.
+- Orden: `precio_min` ascendente o descendente, y relevancia por defecto. La regla `sort` va primera en el índice para que pedir un orden por precio ordene de verdad también con texto; los productos sin stock quedan al final.
 - Paginación: `pagina` y `tamanio` (máximo 50, igual que el `limite` de la capacidad).
 
-**Consulta propuesta** (a publicar en el gateway, no en el contrato v1 de la capacidad):
+**Consulta** (publicada en el gateway, no en el contrato v1 de la capacidad). Los valores de los filtros se escapan: un parámetro no puede alterar la expresión de filtro. Sin SDK: cliente HTTP propio con la biblioteca estándar.
 
 ```
 GET /api/v1/productos/buscar?q=panel 550&categoria=paneles&con_stock=true&orden=precio_asc&pagina=1&tamanio=20
@@ -54,9 +54,9 @@ GET /api/v1/productos/buscar?q=panel 550&categoria=paneles&con_stock=true&orden=
 
 La búsqueda **no reemplaza al ranking**: devuelve productos con su precio mínimo orientativo; el ranking con descuento por volumen y flete sigue saliendo de `GET /api/v1/proveedores/recomendados`, que lee la fuente de verdad.
 
-**Actualización del índice:** por evento. Cuando cambian las ofertas de un proveedor (`ListaPreciosActualizada`, [ADR-005](ADR-005-comunicacion.md)), el consumidor de `proveedores-service` recalcula los documentos de los SKU afectados y los envía a Meilisearch en lote. La operación es idempotente: reindexar el mismo SKU dos veces deja el mismo documento.
+**Actualización del índice:** por evento. Cuando cambian las ofertas de un proveedor (`ListaPreciosActualizada`, [ADR-005](ADR-005-comunicacion.md)), el consumidor de `proveedores-service` registra los SKU afectados en `skus_por_reindexar` **dentro de la transacción del evento** y un ciclo los drena: recalcula los documentos y los envía a Meilisearch en lote. El consumidor lo despierta después del commit, y además mira cada 2 s. Si Meilisearch está caído, los SKU esperan en la tabla. Cada fila tiene una versión: si el SKU cambia mientras se indexa, sigue pendiente. La operación es idempotente: reindexar el mismo SKU dos veces deja el mismo documento.
 
-**Reconstrucción:** un comando `reindexar` que lee todo PostgreSQL, carga un índice nuevo (`productos_tmp`) y lo intercambia con el vigente (`swap-indexes`), así la búsqueda nunca queda vacía. Se corre al arrancar si el índice no existe, y a mano si se sospecha desincronización.
+**Reconstrucción:** un comando `reindexar` que lee todo PostgreSQL, carga un índice nuevo (`productos_tmp`) y lo intercambia con el vigente (`swap-indexes`), así la búsqueda nunca queda vacía. El servicio hace lo mismo al arrancar si el índice no existe o está vacío, y se corre a mano si se sospecha desincronización. Un candado de PostgreSQL deja que una sola réplica por vez escriba el índice: lo que cambia durante una reconstrucción queda pendiente y se indexa después del intercambio.
 
 **Retraso máximo tolerable:** **5 segundos** entre que se confirma el cambio de una oferta en PostgreSQL y su aparición en los resultados.
 
@@ -71,17 +71,29 @@ La búsqueda **no reemplaza al ranking**: devuelve productos con su precio míni
 
 - **Un contenedor más** (Meilisearch) y su volumen en el compose.
 - **Los resultados pueden estar hasta 5 s desactualizados**, y el `precio_min` de la búsqueda no incluye flete ni descuento por volumen: puede no coincidir con el primer puesto del ranking.
-- **La búsqueda depende de la mensajería** para mantenerse al día; si los eventos se pierden, el índice se desfasa hasta la próxima reconstrucción.
+- **La búsqueda depende de la mensajería** para mantenerse al día; si un evento termina en la DLQ, lo que traía no llega ni a PostgreSQL ni al índice ([ADR-005](ADR-005-comunicacion.md)).
+- **Si un proveedor no tiene stock de un producto, el filtro `proveedor` no lo encuentra**, porque la lista solo tiene a los que tienen stock.
+- **Un ciclo por réplica mira la tabla cada 2 s:** son 1 consulta por segundo a PostgreSQL entre las dos, sin carga de eventos.
 - **Si Meilisearch cae, la búsqueda devuelve `503`**, pero la capacidad publicada sigue funcionando porque no depende del índice.
-- **Hoy los datos solo cambian por el seed**, así que la sincronización por evento no se va a poder demostrar hasta que exista `import-service` o un endpoint de carga de precios.
 
 ## Con qué lo medimos
 
-Todavía no hay mediciones: no está implementado. Cuando lo esté:
+Mediciones del 06/11 en el sistema levantado con `docker compose`, en la misma máquina que [ADR-013](ADR-013-capacidad-y-costos.md):
 
-- **Retraso de indexación:** diferencia entre `actualizado_en` de la oferta y el momento en que aparece en la búsqueda, objetivo **p95 < 5 s**.
-- **Latencia de búsqueda** en el test de carga, objetivo p95 < 100 ms.
-- **Tiempo de reconstrucción completa** del índice con el seed (30 productos, 170 ofertas) y con un volumen sintético de 10 000 productos.
+| Qué | Resultado | Objetivo |
+|---|---|---|
+| **Retraso de indexación** (`actualizado_en` de la oferta → aparece en la búsqueda), 25 eventos reales mock de FAV → `import-service` → RabbitMQ → consumidor → Meilisearch, sondeando cada 20 ms | mediana **129 ms**, **p95 266 ms**, máximo 708 ms; ningún evento perdido | p95 < 5 s |
+| **Latencia de búsqueda** por el gateway, 100 req/s durante 30 s, 3 000 requests sin errores | mediana 4,1 ms, **p95 49,4 ms**, máximo 62 ms | p95 < 100 ms |
+| **Reconstrucción** con el seed y el catálogo del mock (40 productos) | **0,3 s** | — |
+| **Reconstrucción** con 10 000 productos y 60 000 ofertas sintéticas, en una base y un índice aparte | **2,3 s** | — |
+
+La distribución de la latencia de búsqueda es rara: mediana de 4 ms y p90 de 48 ms. Cumple el objetivo, pero no se investigó de dónde sale ese segundo grupo. El retraso se midió con un cambio de precio por evento y sin otra carga; no se midió bajo un test de carga en paralelo.
+
+**Fallas**, en [`tests/carga/resultados/2026-11-06-fallas/`](../../tests/carga/resultados/2026-11-06-fallas/): con Meilisearch detenido la búsqueda responde `503` y la capacidad 200; un evento se aplica y confirma, el SKU queda pendiente y, al volver el motor, se indexa sin otro evento y la tabla queda vacía.
+
+**Tests** contra Meilisearch real en el paquete: filtros, orden, paginación, tolerancia a errores de tipeo, reconstrucción y 12 valores hostiles en los filtros, que no amplían los resultados.
+
+Evidencia: [`2026-11-06-retraso-indice`](../../tests/carga/resultados/2026-11-06-retraso-indice/) y [`2026-11-06-busqueda`](../../tests/carga/resultados/2026-11-06-busqueda/).
 
 ## Qué nos haría cambiar de idea
 

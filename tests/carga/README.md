@@ -14,7 +14,11 @@ del objetivo, sino una condición para que la corrida mida la tasa que dice. El 
 | Archivo | Qué es |
 |---|---|
 | [`recomendados.js`](recomendados.js) | El escenario de k6. Cuenta las respuestas por código (`respuestas_200`, `respuestas_504`, …). |
-| [`medir.sh`](medir.sh) | Corre la serie completa (rampa más una corrida por tasa) y guarda el resumen de k6 y `docker stats` de cada corrida. |
+| [`medir.sh`](medir.sh) | Corre la serie completa (rampa más una corrida por tasa) y guarda el resumen de k6, `docker stats` y los contadores de PostgreSQL y Redis de cada corrida, y qué código se midió (`meta.txt`). |
+| [`aciertos.sh`](aciertos.sh) | Tasa de aciertos de la caché a la demanda esperada: pocas req/s y SKU sesgados, con los contadores de Redis. |
+| [`retraso-indice.js`](retraso-indice.js) | Retraso del índice de búsqueda, con eventos reales de punta a punta. |
+| [`buscar.js`](buscar.js) | Latencia de la búsqueda a tasa fija. |
+| [`fallas.sh`](fallas.sh) | Simulacro: apaga cada dependencia y muestra qué responde el sistema. |
 | [`resumir.py`](resumir.py) | Arma las tablas de abajo a partir de una carpeta de resultados. |
 | [`resultados/`](resultados/) | La evidencia de cada medición, por fecha. |
 
@@ -58,10 +62,37 @@ docker run --rm --network arq-soft-proveedores_interna -v "${PWD}\tests\carga:/s
 | `API_KEY` | `clave-de-desarrollo` | la de `.env.example` |
 | `ESCALONES` | `50,100,200,400,800,1200,1600` | req/s de cada escalón, separados por coma |
 | `DURACION_ESCALON` | `30s` | cuánto se sostiene cada escalón |
+| `SKU_SESGADOS` | apagado | con `1`, pocos SKU reciben la mayoría de las requests; por defecto, reparto uniforme |
 
 Con varios escalones, cada uno sube en 5 s desde el anterior y se sostiene
 `DURACION_ESCALON`. Con uno solo, la corrida arranca directamente en esa tasa: los
 primeros segundos incluyen el calentamiento.
+
+**La comparación con y sin caché**, con `CACHE_HABILITADA` en `.env` y las mismas tasas:
+
+```bash
+# CACHE_HABILITADA=false en .env
+docker compose up -d --build --wait
+bash tests/carga/medir.sh tests/carga/resultados/<fecha>-b-pool 200 1000 1600
+# CACHE_HABILITADA=true en .env
+docker compose up -d --wait
+bash tests/carga/medir.sh tests/carga/resultados/<fecha>-c-pool-cache 200 1000 1600
+bash tests/carga/aciertos.sh tests/carga/resultados/<fecha>-aciertos 5 300s
+```
+
+**El retraso del índice, la latencia de búsqueda y el simulacro**, con `INTERVALO_SINCRONIZACION=10s` en `.env` para no esperar 5 minutos por evento:
+
+```bash
+MSYS_NO_PATHCONV=1 docker run --rm --network arq-soft-proveedores_interna \
+  -v "$(pwd -W)/tests/carga:/scripts" -e EVENTOS=25 \
+  grafana/k6:1.3.0 run /scripts/retraso-indice.js
+MSYS_NO_PATHCONV=1 docker run --rm --network arq-soft-proveedores_interna \
+  -v "$(pwd -W)/tests/carga:/scripts" -e TASA=100 \
+  grafana/k6:1.3.0 run /scripts/buscar.js
+bash tests/carga/fallas.sh
+```
+
+Corre en la red del compose también para usar el mismo reloj que PostgreSQL: el retraso resta el `actualizado_en` que escribió la base.
 
 ## Cómo leer los resultados
 
@@ -77,6 +108,10 @@ primeros segundos incluyen el calentamiento.
   1 600 de la rampa que colapsó, se agotaron los 2 000 VU porque cada request quedaba
   esperando segundos. Ahí las no lanzadas sí son un síntoma del colapso.
 - **Por código** cuenta las respuestas que no fueron `200`.
+
+## Resultados del 06/11/2026
+
+La comparación base, pool y caché está en [ADR-013](../../docs/adr/ADR-013-capacidad-y-costos.md) y [ADR-007](../../docs/adr/ADR-007-cache.md), y el retraso del índice, en [ADR-006](../../docs/adr/ADR-006-busqueda.md). No se comparan con los del 23/10: Docker tenía otra cantidad de CPU asignada.
 
 ## Resultados del 23/10/2026
 

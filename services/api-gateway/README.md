@@ -13,6 +13,7 @@ puso el servicio.
 | Ruta | Qué hace |
 |---|---|
 | `GET /api/v1/proveedores/recomendados` | Reenvía a `proveedores-service`. Exige `X-API-Key` o JWT. Path, query y cuerpo viajan tal cual. |
+| `GET /api/v1/productos/buscar` | Igual que la anterior: búsqueda por texto en Meilisearch. La usa el frontend; no es parte del contrato publicado a otros grupos ([ADR-006](../../docs/adr/ADR-006-busqueda.md)). |
 | `* /api/v1/stock/…` | Reenvía a `stock-service` (consultar stock, reservar, órdenes). Exige `X-API-Key` o JWT. Una sola instancia, sin balanceo ni reintento: la reserva es un `POST` y reintentarla con su `Idempotency-Key` es decisión del cliente. **`/webhooks/fav` no se publica**: FAV lo llama directo (ADR-009). Solo si está `STOCK_URL`. |
 | `POST /api/v1/auth/login` | Cambia `{"usuario","contrasena"}` por `{"access_token","token_type":"Bearer","expires_in","usuario"}`. Limitado por IP. Solo si están `USUARIOS` y `JWT_SECRETO`. |
 | `GET /` y `GET /web/…` | El frontend: HTML, CSS y JS embebidos en el binario (`internal/gateway/web/`). Sin build ni framework. |
@@ -101,8 +102,10 @@ Round-robin sobre las réplicas de `UPSTREAMS_PROVEEDORES`, salteando las caída
   Arranca dándolas por caídas y hace una primera vuelta antes de empezar a
   escuchar, así `/readyz` nunca dice que está listo sin haberlo comprobado.
 - **Caída entre dos sondeos.** Si falla la conexión, la réplica queda marcada y
-  el `GET` se reintenta **una sola vez** en otra sana. El `GET` de la capacidad
-  no tiene efectos, así que repetirlo es seguro.
+  el `GET` se reintenta **una sola vez** en otra sana. Ningún `GET` de los que
+  reenvía tiene efectos, así que repetirlo es seguro.
+- **Conexiones.** Un transporte propio guarda hasta 256 conexiones ociosas por
+  réplica, en lugar de las 2 de `http.DefaultTransport` ([ADR-013](../../docs/adr/ADR-013-capacidad-y-costos.md)).
 - **Recuperación.** El sondeo devuelve la réplica al reparto cuando vuelve a
   responder; no hace falta reiniciar el gateway.
 - **Timeout.** Un `TIMEOUT_UPSTREAM` vencido devuelve 504 y **no** marca la

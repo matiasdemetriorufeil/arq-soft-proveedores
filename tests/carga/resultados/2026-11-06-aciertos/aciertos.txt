@@ -1,0 +1,1 @@
+tasa=5 req/s, duracion=300s, aciertos=1384, fallos=140, tasa_de_aciertos=90.8 %

@@ -12,9 +12,9 @@ Reparto del trabajo entre los 4 integrantes para llegar a la Entrega 3 y a la pr
 | Integrante | Parte | Estado |
 |---|---|---|
 | 1 (Fede) | Infraestructura, mensajería e importación de FAV | ✅ Hecho (rama `feat/import-service`): compose con RabbitMQ, MongoDB, Redis, Meilisearch, `fav-mock` y base de stock; `pkg/mensajeria` y `docs/contracts/eventos.md`; `import-service` con test de contrato; ADR-014 y ADR-001, 003, 005, 009 y 010 actualizados. Falta: correr los tests de integración de MongoDB y `docker compose up` completo en una máquina con Docker |
-| 2 | Lectura rápida: caché y búsqueda en `proveedores-service` | ⏳ |
-| 3 | `stock-service`: reserva, reposición y pedidos a FAV | ✅ Hecho (rama `feat/stock-service`): servicio en capas con su base, reserva sin sobreventa con test de concurrencia, reposición automática, pedidos a FAV con `Idempotency-Key` y webhook HMAC (estos dos los terminó el Integrante 1), ADR-004 nuevo y ADR-002, 009 y SPEC al día. Probado contra PostgreSQL real y de punta a punta contra el mock de FAV. Falta: `docker compose up` completo y rutearlo en el gateway (Integrante 4) |
-| 4 (Santino) | Entrada, frontend, nube y operación | 🟡 Casi todo (rama `feat/frontend-nube`, sobre `feat/stock-service`): login JWT, límite de tráfico con `429`, ruteo a `stock-service`, frontend, métricas, tablero, 3 alertas, CI, contrato 1.1.0 y despliegue preparado (`docs/NUBE.md`); ADR-008, 010, 011 y `ARCHITECTURE.md` al día. Probado con los 14 contenedores levantados. Falta: crear la VM y publicar la URL, la ruta de búsqueda y la búsqueda en el frontend (cuando esté la parte 2) |
+| 2 | Lectura rápida: caché y búsqueda en `proveedores-service` | ✅ Hecho (en `main` desde el PR #8, 06/11): consumidor del evento con DLQ y consumidor único, caché Redis, búsqueda en Meilisearch con reconstrucción y pool del gateway; ADR-006 y ADR-007 aceptados, ADR-005, 010 y 013 actualizados, con mediciones A, B y C en `tests/carga/resultados/2026-11-06-*`. La capacidad máxima con pool y caché no está medida: ninguna serie llegó al límite a 1 600 req/s |
+| 3 | `stock-service`: reserva, reposición y pedidos a FAV | ✅ Hecho (rama `feat/stock-service`): servicio en capas con su base, reserva sin sobreventa con test de concurrencia, reposición automática, pedidos a FAV con `Idempotency-Key` y webhook HMAC (estos dos los terminó el Integrante 1), ADR-004 nuevo y ADR-002, 009 y SPEC al día. Probado contra PostgreSQL real y de punta a punta contra el mock de FAV. Ruteado en el gateway por la parte 4 |
+| 4 (Santino) | Entrada, frontend, nube y operación | 🟡 Casi todo (rama `feat/frontend-nube`, sobre `feat/stock-service` y con `main` mergeado): login JWT, límite de tráfico con `429`, ruteo a `stock-service` y a la búsqueda, frontend, métricas, tablero, 3 alertas, CI, contrato 1.1.0 y despliegue preparado (`docs/NUBE.md`); ADR-008, 010, 011 y `ARCHITECTURE.md` al día. Falta: crear la VM y publicar la URL, y el Game Day |
 
 Cada uno actualiza su fila cuando termina.
 
@@ -109,18 +109,18 @@ Documentación:
 
 Rama: `feat/cache-busqueda`. Todo pasa dentro de `proveedores-service`, sin tocar el dominio (hexagonal, [ADR-002](adr/ADR-002-arquitectura-interna.md)).
 
-- [ ] **Antes de tocar nada:** medir con k6 la capacidad sin caché (línea de base para el "antes")
-- [ ] Consumidor de `ListaPreciosActualizada` ([`eventos.md`](contracts/eventos.md)): idempotente por `evento_id`, descarta secuencias viejas, mensajes no procesables a la DLQ, actualiza las ofertas en PostgreSQL
-- [ ] Caché Redis como decorador de `OfertasRepo` (`internal/adapters/redis`), con invalidación por evento y `singleflight`
-- [ ] Medir "después" con el mismo script y guardar la evidencia en `tests/carga/resultados/`
-- [ ] Meilisearch: índice de productos, actualización por evento y comando para reconstruirlo desde cero
-- [ ] Endpoint de búsqueda con paginación, filtros (`categoria`, proveedor, precio, solo con stock) y orden
-- [ ] Arreglo del transporte del gateway (`MaxIdleConnsPerHost`), ya probado en el experimento de [ADR-013](adr/ADR-013-capacidad-y-costos.md)
-- [ ] Tests unitarios del decorador y de integración contra Redis real
+- [x] **Antes de tocar nada:** medir con k6 la capacidad sin caché (línea de base para el "antes")
+- [x] Consumidor de `ListaPreciosActualizada` ([`eventos.md`](contracts/eventos.md)): idempotente por `evento_id`, descarta secuencias viejas, mensajes no procesables a la DLQ, actualiza las ofertas en PostgreSQL
+- [x] Caché Redis como decorador de `OfertasRepo` (`internal/adapters/redis`), con invalidación por evento y `singleflight`
+- [x] Medir "después" con el mismo script y guardar la evidencia en `tests/carga/resultados/`
+- [x] Meilisearch: índice de productos, actualización por evento y comando para reconstruirlo desde cero
+- [x] Endpoint de búsqueda con paginación, filtros (`categoria`, proveedor, precio, solo con stock) y orden
+- [x] Arreglo del transporte del gateway (`MaxIdleConnsPerHost`), ya probado en el experimento de [ADR-013](adr/ADR-013-capacidad-y-costos.md)
+- [x] Tests unitarios del decorador y de integración contra Redis real
 
 Documentación:
-- [ ] ADR-006 y ADR-007 a "aceptado", con el retraso máximo del índice medido y la comparación antes y después
-- [ ] ADR-013 actualizado con la corrida nueva
+- [x] ADR-006 y ADR-007 a "aceptado", con el retraso máximo del índice medido y la comparación antes y después
+- [x] ADR-013 actualizado con la corrida nueva
 
 ### Integrante 3: `stock-service`: reserva, reposición y pedidos a FAV
 

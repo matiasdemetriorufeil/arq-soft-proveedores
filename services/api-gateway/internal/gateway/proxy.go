@@ -21,6 +21,8 @@ import (
 // servicio, para que el cliente no tenga que saber que hay un gateway en medio.
 const (
 	rutaCapacidad = "/api/v1/proveedores/recomendados"
+	// rutaBusqueda no es parte del contrato publicado: la usa el frontend.
+	rutaBusqueda = "/api/v1/productos/buscar"
 	rutaSalud     = "/healthz"
 	rutaListo     = "/readyz"
 )
@@ -28,6 +30,26 @@ const (
 // timeoutUpstreamPorDefecto se aplica si Config llega sin timeout, para que un
 // cero no se traduzca en un contexto ya vencido.
 const timeoutUpstreamPorDefecto = 3 * time.Second
+
+const (
+	// conexionesOciosasPorReplica acompaña a la concurrencia hacia cada réplica.
+	// Con las 2 de http.DefaultTransport, casi cada request abría y cerraba una
+	// conexión TCP, y el gateway se quedaba con la CPU (ADR-013).
+	conexionesOciosasPorReplica = 256
+	// conexionOciosaVigencia va por debajo de los 60 s de IdleTimeout de las
+	// réplicas: así las cierra el gateway y no le responden sobre una conexión que
+	// la réplica está cerrando.
+	conexionOciosaVigencia = 50 * time.Second
+)
+
+// nuevoTransporte es el transporte hacia las réplicas.
+func nuevoTransporte() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = conexionesOciosasPorReplica
+	t.MaxIdleConns = 2 * conexionesOciosasPorReplica
+	t.IdleConnTimeout = conexionOciosaVigencia
+	return t
+}
 
 // Config agrupa las dependencias del handler del gateway. Lo nuevo de la
 // Entrega 3 es opcional: sin usuarios ni secreto no hay login, sin StockURL no
@@ -75,7 +97,7 @@ func NuevoHandler(cfg Config) http.Handler {
 		Rewrite: p.reescribir,
 		// otelhttp instrumenta la llamada de salida: crea el span hijo y mete
 		// el traceparent en los headers con el propagador global.
-		Transport:      otelhttp.NewTransport(http.DefaultTransport),
+		Transport:      otelhttp.NewTransport(nuevoTransporte()),
 		ErrorHandler:   p.anotarFallo,
 		ModifyResponse: limpiarRequestID,
 		ErrorLog:       slog.NewLogLogger(cfg.Logger.Handler(), slog.LevelError),
@@ -89,6 +111,7 @@ func NuevoHandler(cfg Config) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET "+rutaCapacidad, protegida(http.HandlerFunc(p.reenviar)))
+	mux.Handle("GET "+rutaBusqueda, protegida(http.HandlerFunc(p.reenviar)))
 	if cfg.StockURL != nil {
 		mux.Handle(prefijoStock, protegida(nuevoProxyStock(cfg.StockURL, p.timeout, cfg.Logger)))
 	}
@@ -123,8 +146,8 @@ func intentoDe(ctx context.Context) *intento {
 }
 
 // reenviar elige una réplica y le pasa la request. Si la conexión falla, marca
-// la réplica como caída y reintenta una sola vez en otra: el GET de la
-// capacidad no tiene efectos, así que repetirlo es seguro.
+// la réplica como caída y reintenta una sola vez en otra: el GET de la capacidad
+// y el de la búsqueda no tienen efectos, así que repetirlos es seguro.
 func (p *proxy) reenviar(w http.ResponseWriter, r *http.Request) {
 	inst, ok := p.bal.Siguiente()
 	if !ok {

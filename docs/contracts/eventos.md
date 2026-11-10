@@ -11,7 +11,7 @@ paquete**: así las colas se declaran con los mismos argumentos de los dos lados
 
 | Evento | Publica | Consume | Estado |
 |---|---|---|---|
-| [`ListaPreciosActualizada`](#listapreciosactualizada-v1) v1 | `import-service` | `proveedores-service` | publicación implementada; consumo pendiente (Integrante 2) |
+| [`ListaPreciosActualizada`](#listapreciosactualizada-v1) v1 | `import-service` | `proveedores-service` | implementado |
 
 **`StockBajoMinimo` se retiró** (06/11). Estaba propuesto para que `stock-service`
 se avisara a sí mismo que un producto cayó bajo el mínimo. Al implementar HU-14 la
@@ -42,7 +42,7 @@ Propiedades del mensaje AMQP: `content_type: application/json`, `delivery_mode: 
 ```mermaid
 flowchart LR
     imp[import-service] -- "lista_precios.actualizada" --> ex(("proveedores.eventos<br/>topic"))
-    ex --> q["proveedores-service.lista-precios<br/>quorum · x-delivery-limit 3"]
+    ex --> q["proveedores-service.lista-precios<br/>quorum · x-delivery-limit 3 · consumidor único"]
     q --> prov[proveedores-service]
     q -. "rechazado o 3 entregas fallidas" .-> dlx(("proveedores.eventos.dlx<br/>direct"))
     dlx --> dlq["proveedores-service.lista-precios.dlq"]
@@ -52,13 +52,36 @@ flowchart LR
 |---|---|---|
 | Exchange de eventos | `proveedores.eventos` | `topic`, durable |
 | Clave de ruteo | `lista_precios.actualizada` | |
-| Cola del consumidor | `proveedores-service.lista-precios` | quorum, durable; `x-delivery-limit: 3`; `x-dead-letter-exchange: proveedores.eventos.dlx`; `x-dead-letter-routing-key: proveedores-service.lista-precios.dlq` |
+| Cola del consumidor | `proveedores-service.lista-precios` | quorum, durable; `x-delivery-limit: 3`; `x-single-active-consumer: true`; `x-dead-letter-exchange: proveedores.eventos.dlx`; `x-dead-letter-routing-key: proveedores-service.lista-precios.dlq` |
 | Exchange de fallidos | `proveedores.eventos.dlx` | `direct`, durable |
 | Cola de fallidos (DLQ) | `proveedores-service.lista-precios.dlq` | quorum, durable |
 
 Los dos lados llaman a `mensajeria.DeclararTopologia` al conectarse. El que
 publica también la declara para que **ningún evento se pierda si el consumidor
 todavía no arrancó**: el mensaje espera en la cola.
+
+### Orden con dos réplicas
+
+Las dos réplicas de `proveedores-service` se suscriben a la misma cola. Con
+`x-single-active-consumer: true` la cola le entrega a **una sola** y, si esa se
+cae, pasa a la otra; el consumidor además pide de a un mensaje (prefetch 1). Sin
+esto, dos réplicas aplicarían en paralelo y un evento nuevo podría ganarle a uno
+anterior. Como los eventos son deltas, descartar el viejo por `secuencia` perdería
+sus cambios.
+
+Dos consecuencias para operar:
+
+- **Una cola declarada antes de este argumento no se puede redeclarar:** RabbitMQ
+  contesta `PRECONDITION_FAILED`, el consumidor y el publicador lo loguean y
+  reintentan, y no pasa ningún evento. Le pasa a un volumen `datos-rabbitmq` viejo.
+  En desarrollo: `docker compose down -v`, que borra los datos **de este proyecto**
+  (también MongoDB y PostgreSQL, y así la importación arranca de nuevo con un evento
+  `completa`). Donde haya datos que conservar: vaciar antes la cola con el consumidor
+  anterior, borrarla con
+  `docker compose exec rabbitmq rabbitmqctl delete_queue proveedores-service.lista-precios`
+  y reiniciar los dos servicios para que la vuelvan a declarar.
+- **Esta cola rechaza `basic.get`:** el botón *Get messages* de la UI de RabbitMQ
+  falla en la cola principal. En la DLQ funciona.
 
 ## `ListaPreciosActualizada` v1
 
@@ -129,10 +152,36 @@ Ejemplo (segunda sincronización: cambió un precio, entró una variante y sali�
    del proveedor, borrar las `bajas` y, si `completa`, borrar las ofertas del
    proveedor que no vinieron.
 5. **Después del commit**: invalidar la caché de los SKU tocados
-   ([ADR-007](../adr/ADR-007-cache.md)) y reindexar ([ADR-006](../adr/ADR-006-busqueda.md)).
-   Recién ahí, `Ack`.
-6. **Ante un error transitorio** (la base no responde): `Nack(false, true)`.
-   La cola reentrega y, a la tercera entrega fallida, lo manda sola a la DLQ.
+   ([ADR-007](../adr/ADR-007-cache.md)) y avisar que hay SKU por reindexar
+   ([ADR-006](../adr/ADR-006-busqueda.md)). Recién ahí, `Ack`. Ninguna de las dos
+   hace fallar al evento, que ya está aplicado: los SKU quedan en
+   `skus_por_reindexar` **dentro de la transacción** del paso 4 y un ciclo los drena
+   aunque Meilisearch esté caído, y si la invalidación no llega queda el TTL.
+6. **Ante un error transitorio** (la base no responde): `Nack(false, true)`, después
+   de esperar 5 s la primera vez y 10 s la segunda, para que un corte breve de la base
+   no gaste las entregas. Mientras tanto la cola no avanza (prefetch 1), y eso mantiene el
+   orden. **La tercera entrega fallida** la manda a la DLQ el consumidor, con
+   `Nack(false, false)`, leyendo el `x-delivery-count` del mensaje: la cola sola
+   recién la descartaría en la cuarta, porque `x-delivery-limit` cuenta devoluciones.
+
+El tipo o la versión desconocidos y los datos que la base nunca aceptaría (sin
+proveedor, secuencia o SKU; importes negativos) también van directo a la DLQ, como
+el paso 1. Una oferta de un producto o proveedor que no existe falla por clave foránea,
+se reintenta y termina en la DLQ.
+
+**Limitaciones que se aceptan** ([ADR-005](../adr/ADR-005-comunicacion.md)):
+
+- Si un evento agota sus entregas va a la DLQ y los siguientes se aplican igual: lo
+  que traía queda desfasado hasta que ese dato vuelva a cambiar o se reprocese.
+- Si se pierde MongoDB y se conserva PostgreSQL, `import-service` vuelve a numerar
+  desde 1 y el consumidor descarta todo por secuencia vieja. Para recuperarlo, en
+  este orden: detener `import-service`, correr
+  `DELETE FROM secuencias_proveedor WHERE proveedor_id = 11` y volver a arrancarlo.
+  El orden importa: si el evento `completa` de la secuencia 1 llega antes del `DELETE`,
+  se descarta y queda registrado en `eventos_procesados`, y el `DELETE` solo no
+  recupera ese catálogo.
+- `eventos_procesados` no se purga: crece una fila por evento, unas 288 por día como
+  máximo con el intervalo de 5 min.
 
 Retraso aceptable entre la publicación y el efecto: **menos de 5 s** en
 condiciones normales (ADR-005).
@@ -152,3 +201,13 @@ condiciones normales (ADR-005).
 Esto está probado contra un RabbitMQ real en
 [`services/import-service/internal/integracion/`](../../services/import-service/internal/integracion/):
 confirmación, mensaje rechazado a la DLQ, DLQ tras el límite de entregas y mensaje sin cola que no cuenta como publicado.
+
+## Pruebas del consumidor
+
+Contra RabbitMQ y PostgreSQL reales, en
+[`services/proveedores-service/internal/adapters/rabbitmq/`](../../services/proveedores-service/internal/adapters/rabbitmq/)
+y [`.../adapters/postgres/`](../../services/proveedores-service/internal/adapters/postgres/):
+evento nuevo, duplicado, secuencia vieja, baja, `completa` (también vacía, el caso de
+`catalogo_vencido`), rollback completo si algo falla, basura directo a la DLQ, base
+caída con exactamente 3 entregas antes de la DLQ, dos consumidores en orden con
+relevo al caer el activo, reconexión y cola vieja sin consumidor único.

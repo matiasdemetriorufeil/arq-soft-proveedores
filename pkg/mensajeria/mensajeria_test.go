@@ -166,6 +166,9 @@ func TestTopologiaMandaLosFallidosALaDLQ(t *testing.T) {
 	if principal.args["x-dead-letter-exchange"] != ExchangeFallidos {
 		t.Errorf("la cola principal no tiene DLX: %v", principal.args)
 	}
+	if principal.args["x-single-active-consumer"] != true {
+		t.Errorf("x-single-active-consumer = %v: dos réplicas aplicarían eventos en paralelo", principal.args["x-single-active-consumer"])
+	}
 	if principal.args["x-delivery-limit"] != int32(IntentosMaximos) {
 		t.Errorf("x-delivery-limit = %v, quiero %d", principal.args["x-delivery-limit"], IntentosMaximos)
 	}

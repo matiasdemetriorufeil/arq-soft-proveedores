@@ -4,7 +4,8 @@ Uso: python tests/carga/resumir.py tests/carga/resultados/AAAA-MM-DD
 
 Por corrida: tasa atendida, latencias, errores por código, iteraciones que k6
 no llegó a lanzar y VU usados (de k6-*.json), y CPU media y memoria máxima de
-cada contenedor mientras k6 estaba corriendo (de stats-*.csv).
+cada contenedor mientras k6 estaba corriendo (de stats-*.csv). Y, si la carpeta
+los tiene, los contadores de PostgreSQL y Redis de contadores-*.csv.
 """
 
 import csv
@@ -13,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 
-CONTENEDORES = ["api-gateway", "proveedores-service-1", "proveedores-service-2", "postgres", "jaeger", "k6-carga"]
+CONTENEDORES = ["api-gateway", "proveedores-service-1", "proveedores-service-2", "postgres", "redis", "jaeger", "k6-carga"]
 
 
 def mib(texto):
@@ -86,6 +87,30 @@ def main(carpeta):
         r, n = recursos(stats)
         celdas = [f"{r[c][0]:.0f} % / {r[c][1]:.0f}" if c in r else "—" for c in CONTENEDORES]
         print(f"| {p.stem[3:]} | " + " | ".join(celdas) + f" | {n} |")
+
+    filas = []
+    for p in corridas:
+        ruta = carpeta / p.name.replace("k6-", "contadores-").replace(".json", ".csv")
+        if not ruta.exists():
+            continue
+        c = {f["momento"]: f for f in csv.DictReader(ruta.open(encoding="utf-8"))}
+        if {"antes", "despues"} - set(c):
+            continue
+        delta = {k: int(c["despues"][k]) - int(c["antes"][k]) for k in ("lecturas_productos", "redis_hits", "redis_misses")}
+        reqs = json.load(p.open(encoding="utf-8"))["metrics"]["http_reqs"]["count"]
+        pedidos = delta["redis_hits"] + delta["redis_misses"]
+        aciertos = f"{delta['redis_hits'] / pedidos * 100:.1f} %" if pedidos else "—"
+        filas.append(
+            f"| {p.stem[3:]} | {int(reqs)} | {delta['lecturas_productos']} "
+            f"| {delta['lecturas_productos'] / reqs:.3f} | {delta['redis_hits']} | {delta['redis_misses']} | {aciertos} |"
+        )
+    if filas:
+        print()
+        print("Consultas a PostgreSQL y aciertos de Redis por corrida:")
+        print()
+        print("| Corrida | Requests | Lecturas de `productos` | Por request | Aciertos | Fallos | Tasa de aciertos |")
+        print("|---|---:|---:|---:|---:|---:|---:|")
+        print(chr(10).join(filas))
 
 
 if __name__ == "__main__":

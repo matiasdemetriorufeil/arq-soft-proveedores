@@ -1,8 +1,8 @@
 # ADR-013 — Capacidad y costos (D13)
 
 - **Estado:** aceptado. Test de carga ejecutado sobre el sistema real; la alternativa de escalado y la estimación de costos son propuestas para el despliegue en la nube (Entrega 3).
-- **Fecha:** 2026-10-23
-- **Entrega:** 2 (23/10)
+- **Fecha:** 2026-10-23 · actualizado 2026-11-06
+- **Entrega:** 2 (23/10); corrida con el pool arreglado y con caché en la 3 (06/11)
 - **Decisión de la consigna:** D13. Resultados de las pruebas de carga, principal límite identificado, alternativa de escalado y estimación de costos.
 
 ## Contexto
@@ -67,10 +67,10 @@ Para escalar, una vez encontrado el límite:
 
 Combina las opciones 2, 3 y 4 en este orden, porque cada paso es más barato que el siguiente y ataca lo que se midió. La opción 1 queda descartada: en la misma máquina, una tercera réplica compite por la misma CPU y no mueve el límite.
 
-1. **Pool de conexiones del gateway acorde a la concurrencia** (una línea en `proxy.go`): menos CPU por request y sin colapso a 2 000 req/s en la medición. Es código del gateway ([ADR-012](ADR-012-balanceo-de-carga.md)); se propone como un cambio aparte, con su propio PR.
+1. **Pool de conexiones del gateway acorde a la concurrencia** (`nuevoTransporte` en `proxy.go`, **aplicado el 06/11**): menos CPU por request y sin colapso a 2 000 req/s en el experimento del 23/10. La corrida del 06/11, más abajo, no llegó a separar su efecto del ruido en las tasas que midió.
 2. **Tope de memoria y muestreo para Jaeger**: `MEMORY_MAX_TRACES` y `mem_limit` en el compose, y muestreo del 10 % (`parentbased_traceidratio`).
 3. **Separar el gateway, las réplicas y la base en máquinas distintas** cuando una sola no alcance.
-4. **Caché de ofertas en Redis** ([ADR-007](ADR-007-cache.md)) cuando PostgreSQL pase a ser el límite; hoy no lo es.
+4. **Caché de ofertas en Redis** ([ADR-007](ADR-007-cache.md), **aplicada el 06/11**): medida en la serie C, saca a PostgreSQL del camino, pero no se presenta como mejora de capacidad, porque la base no era el límite y ninguna serie llegó a saturar.
 5. **Réplicas del gateway** detrás de un balanceador de la nube; obliga a revisar el estado de salud por instancia ([ADR-012](ADR-012-balanceo-de-carga.md)).
 
 ### Estimación de costos
@@ -98,15 +98,47 @@ Son precios de lista de referencia; **se verifican al contratar** en la Entrega 
 - **La medición está contaminada por k6**, que corre en la misma máquina y usa más de un núcleo a partir de 1 400 req/s. La capacidad con el generador en otra máquina sería algo mayor, y la de una VM de 2 vCPU, bastante menor.
 - **Es un solo flujo con datos chicos** (30 productos, 170 ofertas): PostgreSQL tiene todo en memoria. Con miles de ofertas por SKU, el límite podría pasar a la base ([ADR-003](ADR-003-persistencia.md)).
 - **Una corrida por tasa, sin repeticiones sistemáticas.** La variación entre las dos rampas y entre las corridas exploratorias y las de referencia muestra que, en sobrecarga, los números tienen mucho ruido. Por eso declaramos 1 200 req/s y no 1 550.
-- **El colapso bajo sobrecarga sigue en `main`** hasta que se aplique el ajuste del pool del gateway.
+- **No se volvió a probar la sobrecarga** con el pool arreglado: la corrida del 06/11 llega a 1 600 req/s, así que no está medido si el colapso desapareció en estas condiciones. La evidencia sigue siendo el experimento del 23/10.
 - **Una sola VM es un punto único de falla** para todo el sistema, como ya lo es la base en local.
 
 ## Con qué lo medimos
 
-Este ADR **es** la medición: tablas de arriba, [`tests/carga/README.md`](../../tests/carga/README.md) y la evidencia en [`tests/carga/resultados/`](../../tests/carga/resultados/README.md). Se repite con `tests/carga/medir.sh`:
+Este ADR **es** la medición: tablas de arriba, [`tests/carga/README.md`](../../tests/carga/README.md) y la evidencia en [`tests/carga/resultados/`](../../tests/carga/resultados/README.md).
 
-- después de aplicar el ajuste del pool del gateway;
-- en la Entrega 3, con la caché apagada y prendida ([ADR-007](ADR-007-cache.md));
+### Corrida del 06/11: base, pool y caché
+
+A: código base (`68a3670`). B: pool del gateway arreglado, `CACHE_HABILITADA=false`. C: pool y caché. Misma máquina el 06/11, con Docker Desktop con 12 CPU y 7,6 GB, otros contenedores ajenos corriendo y el generador k6 adentro. La CPU está en % de un núcleo.
+
+| Tasa | Serie | p50 | p95 | p99 | Máx. | Errores | No lanzadas | CPU gateway | CPU cada réplica | CPU PostgreSQL | CPU Redis | Lecturas de `productos` |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 200 | A | 3,2 ms | 5,4 ms | 9,3 ms | 29 ms | 0 % | 0 | 41 % | 19 % | 14 % | — | 6 999 |
+| 200 | B | 2,1 ms | 3,8 ms | 5,5 ms | 23 ms | 0 % | 0 | 25 % | 11 % | 8 % | — | 6 999 |
+| 200 | C | 1,6 ms | 3,0 ms | 4,3 ms | 12 ms | 0 % | 0 | 25 % | 10 % | 1 % | 4 % | **30** |
+| 1 000 | A | 1,9 ms | 6,3 ms | 22,2 ms | 125 ms | 0 % | 0 | 102 % | 52 % | 40 % | — | 34 999 |
+| 1 000 | B | 2,2 ms | 5,3 ms | 12,7 ms | 101 ms | 0 % | 0 | 115 % | 60 % | 45 % | — | 34 999 |
+| 1 000 | C | 1,7 ms | 3,9 ms | 10,8 ms | 42 ms | 0 % | 0 | 104 % | 48 % | 1 % | 12 % | **30** |
+| 1 600 | A | 2,0 ms | 15,3 ms | 42,5 ms | 161 ms | 0 % | 58 | 159 % | 78 % | 63 % | — | 55 940 |
+| 1 600 | B | 2,3 ms | 12,0 ms | 29,5 ms | 135 ms | 0 % | 33 | 155 % | 82 % | 70 % | — | 55 964 |
+| 1 600 | C | 1,7 ms | 7,5 ms | 24,0 ms | 83 ms | 0 % | 0 | 152 % | 71 % | 1 % | 17 % | **30** |
+
+| Rampa (50 → 1 600 req/s) | p50 | p95 | p99 | Máx. | Errores | No lanzadas | Lecturas por request |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| A | 3,7 ms | 138,5 ms | 339 ms | 1,40 s | 0 % | 4 142 | 1,000 |
+| B | 2,3 ms | **533,9 ms** | 1,05 s | 2,33 s | 0 % | 12 007 | 1,000 |
+| B, repetida | 2,1 ms | **7,8 ms** | 41 ms | 347 ms | 0 % | 270 | 1,000 |
+| C | 1,7 ms | 4,4 ms | 20 ms | 202 ms | 0 % | 125 | 0,001 |
+
+Qué se puede afirmar y qué no:
+
+- **Las tres series cumplen el objetivo en las tres tasas.** El límite no se alcanzó, así que la **capacidad máxima de estas configuraciones no está medida**; la declarada de 1 200 req/s sigue siendo conservadora, y ninguna tasa pasó de 1 600.
+- **Estos números no se comparan con los del 23/10.** La línea A a 1 600 req/s da p95 de 15 ms contra los 171 ms de aquel día con el mismo código. Docker tiene ahora más CPU asignada (12 contra 8), que es la explicación probable; no se aisló.
+- **El efecto del pool no se separa del ruido.** A 200 req/s la CPU del gateway baja de 41 % a 25 %, pero a 1 000 sube de 102 % a 115 % y a 1 600 queda igual (159 % → 155 %). El p95 baja poco (6,3 → 5,3 ms y 15,3 → 12,0 ms). No se repite lo del experimento del 23/10 (139 % → 96 %), que era más cerca de la saturación.
+- **Las rampas tienen mucho ruido:** la misma configuración B dio p95 de 534 ms y, repetida, de 7,8 ms. Una rampa suelta no alcanza para concluir nada, y A y C se corrieron una sola vez. Es la misma inestabilidad que ya se vio el 23/10. La repetición corrió con una diferencia en la caché que no se usa con `CACHE_HABILITADA=false`.
+- **La caché sí se ve con claridad, pero en la base:** de 1 lectura por request a 0,001 y de 40-70 % de CPU de PostgreSQL a 1 % ([ADR-007](ADR-007-cache.md)).
+
+Se repite con `tests/carga/medir.sh`:
+
+- a más de 1 600 req/s, con el generador en otra máquina, para volver a buscar el límite;
 - contra el despliegue en la nube, desde una máquina distinta.
 
 ## Qué nos haría cambiar de idea

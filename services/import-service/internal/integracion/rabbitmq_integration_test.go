@@ -60,6 +60,10 @@ func canal(t *testing.T) *amqp.Channel {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// De a uno, como el consumidor: recibir no se queda con más de un mensaje.
+	if err := ch.Qos(1, 0, false); err != nil {
+		t.Fatal(err)
+	}
 	// Cada test arranca con las colas vacías.
 	if err := mensajeria.DeclararTopologia(ch); err != nil {
 		t.Fatal(err)
@@ -84,21 +88,28 @@ func publicarUno(t *testing.T) mensajeria.Sobre {
 	return sobre
 }
 
+// recibir se suscribe en vez de usar basic.get porque la cola principal tiene
+// x-single-active-consumer, y una cola quorum así rechaza basic.get. Se da de baja
+// enseguida: el mensaje queda sin confirmar hasta que el test le conteste.
 func recibir(t *testing.T, ch *amqp.Channel, cola string) amqp.Delivery {
 	t.Helper()
-	hasta := time.Now().Add(10 * time.Second)
-	for time.Now().Before(hasta) {
-		d, ok, err := ch.Get(cola, false)
-		if err != nil {
+	const etiqueta = "test-recibir"
+	entregas, err := ch.Consume(cola, etiqueta, false, false, false, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := ch.Cancel(etiqueta, false); err != nil {
 			t.Fatal(err)
 		}
-		if ok {
-			return d
-		}
-		time.Sleep(100 * time.Millisecond)
+	}()
+	select {
+	case d := <-entregas:
+		return d
+	case <-time.After(10 * time.Second):
+		t.Fatalf("no llegó ningún mensaje a %s", cola)
+		return amqp.Delivery{}
 	}
-	t.Fatalf("no llegó ningún mensaje a %s", cola)
-	return amqp.Delivery{}
 }
 
 func TestPublicarConConfirmacionLlegaALaColaDeProveedores(t *testing.T) {
