@@ -3,9 +3,11 @@
 #   Copy-Item .env.example .env     (PowerShell)  ·  cp .env.example .env  (bash)
 #   docker compose up -d --build
 #
-# Al host salen el gateway (la única entrada al sistema) y las consolas de
-# operación: la UI de Jaeger, la de RabbitMQ y el control del mock de FAV, que
-# hace de proveedor externo. Las bases, el broker y los servicios quedan en la
+# Al host salen el gateway (la única entrada al sistema, que además sirve el
+# frontend en http://localhost:8080) y las consolas de operación: la UI de
+# Jaeger, la de RabbitMQ, Prometheus, Grafana y el control del mock de FAV, que
+# hace de proveedor externo. En la nube, docker-compose.nube.yml deja solo el
+# gateway hacia afuera (ver docs/NUBE.md). Las bases, el broker y los servicios quedan en la
 # red interna. Las migraciones y el seed los aplica cada servicio al arrancar;
 # Postgres solo corre al crear el volumen el script que arma una base por
 # servicio (infra/postgres/init/).
@@ -240,8 +242,8 @@ services:
   # ADR-004), repone lo que baja del mínimo (HU-14) y le hace los pedidos a
   # FAV, que le avisa por webhook en /webhooks/fav (ADR-009). Usa su propia base
   # `stock` con su propio usuario, que no puede conectarse a la de proveedores
-  # (ADR-003). No publica puerto al host y todavía no está ruteado en el
-  # gateway: se lo alcanza desde la red interna como http://stock-service:8080.
+  # (ADR-003). No publica puerto al host: desde afuera se lo alcanza por el
+  # gateway en /api/v1/stock/ (el webhook queda fuera del gateway, ADR-009).
   stock-service:
     build:
       # El contexto es la raíz del repo: el módulo del servicio depende de
@@ -308,6 +310,23 @@ services:
       TIMEOUT_UPSTREAM: ${TIMEOUT_UPSTREAM:-3s}
       INTERVALO_SALUD: ${INTERVALO_SALUD:-5s}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      # stock-service, publicado en /api/v1/stock/ (sin balanceo: una sola
+      # instancia).
+      STOCK_URL: http://stock-service:8080
+      # Login del frontend: usuarios de demo y secreto con el que se firman
+      # los JWT. Sin alguno de los dos, no hay login y solo vale X-API-Key.
+      USUARIOS: ${USUARIOS:-}
+      JWT_SECRETO: ${JWT_SECRETO:-}
+      DURACION_JWT: ${DURACION_JWT:-1h}
+      # Límite de tráfico (token bucket, ADR-010): por API key o usuario, y
+      # aparte por IP en el login. 0 lo apaga.
+      LIMITE_POR_SEGUNDO: ${LIMITE_POR_SEGUNDO:-50}
+      LIMITE_RAFAGA: ${LIMITE_RAFAGA:-100}
+      LOGIN_POR_SEGUNDO: ${LOGIN_POR_SEGUNDO:-0.2}
+      LOGIN_RAFAGA: ${LOGIN_RAFAGA:-5}
+      # Las métricas salen por otro puerto, que no se publica: las lee
+      # Prometheus por la red interna.
+      PUERTO_METRICAS: "9091"
     ports:
       - "${PUERTO_GATEWAY:-8080}:8080"
     depends_on:
@@ -326,6 +345,49 @@ services:
     networks: [interna]
     restart: unless-stopped
 
+  # Métricas y alertas (ADR-011). Lee al gateway cada 5 s y evalúa las reglas
+  # de infra/prometheus/alertas.yml: p95 > 300 ms, errores 5xx > 1 % y ninguna
+  # réplica sana. Las alertas se ven en http://localhost:9090/alerts.
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alertas.yml:/etc/prometheus/alertas.yml:ro
+      - datos-prometheus:/prometheus
+    ports:
+      - "${PUERTO_PROMETHEUS:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks: [interna]
+    restart: unless-stopped
+
+  # Tablero (ADR-011): tasa, errores, latencia, rechazos por límite y alertas
+  # activas. El datasource y el tablero se cargan solos desde infra/grafana/.
+  # Entrar en http://localhost:3000 (usuario admin, contraseña GRAFANA_PASSWORD).
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?falta GRAFANA_PASSWORD en .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/tableros/capacidad.json
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/tableros:/var/lib/grafana/tableros:ro
+      - datos-grafana:/var/lib/grafana
+    ports:
+      - "${PUERTO_GRAFANA:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks: [interna]
+    restart: unless-stopped
+
 networks:
   interna:
     driver: bridge
@@ -335,3 +397,5 @@ volumes:
   datos-rabbitmq:
   datos-mongodb:
   datos-meilisearch:
+  datos-prometheus:
+  datos-grafana:
