@@ -12,9 +12,9 @@ Reparto del trabajo entre los 4 integrantes para llegar a la Entrega 3 y a la pr
 | Integrante | Parte | Estado |
 |---|---|---|
 | 1 (Fede) | Infraestructura, mensajería e importación de FAV | ✅ Hecho (rama `feat/import-service`): compose con RabbitMQ, MongoDB, Redis, Meilisearch, `fav-mock` y base de stock; `pkg/mensajeria` y `docs/contracts/eventos.md`; `import-service` con test de contrato; ADR-014 y ADR-001, 003, 005, 009 y 010 actualizados. Falta: correr los tests de integración de MongoDB y `docker compose up` completo en una máquina con Docker |
-| 2 | Lectura rápida: caché y búsqueda en `proveedores-service` | ✅ Hecho (rama `feat/cache-busqueda`, sin mergear): consumidor del evento con DLQ y consumidor único, caché Redis, búsqueda en Meilisearch con reconstrucción y pool del gateway; ADR-006 y ADR-007 aceptados, ADR-005, 010 y 013 actualizados, con mediciones A, B y C en `tests/carga/resultados/2026-11-06-*`. La capacidad máxima con pool y caché no está medida: ninguna serie llegó al límite a 1 600 req/s |
-| 3 | `stock-service`: reserva, reposición y pedidos a FAV | ⏳ |
-| 4 | Entrada, frontend, nube y operación | ⏳ |
+| 2 | Lectura rápida: caché y búsqueda en `proveedores-service` | ✅ Hecho (en `main` desde el PR #8, 06/11): consumidor del evento con DLQ y consumidor único, caché Redis, búsqueda en Meilisearch con reconstrucción y pool del gateway; ADR-006 y ADR-007 aceptados, ADR-005, 010 y 013 actualizados, con mediciones A, B y C en `tests/carga/resultados/2026-11-06-*`. La capacidad máxima con pool y caché no está medida: ninguna serie llegó al límite a 1 600 req/s |
+| 3 | `stock-service`: reserva, reposición y pedidos a FAV | ✅ Hecho (rama `feat/stock-service`): servicio en capas con su base, reserva sin sobreventa con test de concurrencia, reposición automática, pedidos a FAV con `Idempotency-Key` y webhook HMAC (estos dos los terminó el Integrante 1), ADR-004 nuevo y ADR-002, 009 y SPEC al día. Probado contra PostgreSQL real y de punta a punta contra el mock de FAV. Ruteado en el gateway por la parte 4 |
+| 4 (Santino) | Entrada, frontend, nube y operación | 🟡 Casi todo (rama `feat/frontend-nube`, sobre `feat/stock-service` y con `main` mergeado): login JWT, límite de tráfico con `429`, ruteo a `stock-service` y a la búsqueda, frontend, métricas, tablero, 3 alertas, CI, contrato 1.1.0 y despliegue preparado (`docs/NUBE.md`); ADR-008, 010, 011 y `ARCHITECTURE.md` al día. Falta: crear la VM y publicar la URL, y el Game Day |
 
 Cada uno actualiza su fila cuando termina.
 
@@ -102,7 +102,7 @@ Documentación:
 **Lo que quedó listo para los demás**
 
 - **Integrante 2:** el formato del evento, las colas y los pasos del consumidor están en [`contracts/eventos.md`](contracts/eventos.md). Usá `pkg/mensajeria` (`LeerSobre`, `DeclararTopologia`, los tipos de `ListaPreciosActualizada`) para no declarar las colas distinto. FAV ya existe como proveedor 11 (`003_proveedor_fav.sql`). Redis y Meilisearch ya levantan en el compose (`REDIS_PASSWORD` y `MEILI_MASTER_KEY` en `.env`).
-- **Integrante 3:** la base `stock` con su usuario ya se crea en el Postgres del compose (`STOCK_DB`, `STOCK_DB_USER`, `STOCK_DB_PASSWORD`). El mock de FAV (`services/import-service/internal/favmock`) por ahora solo tiene el catálogo: hay que sumarle `POST /v1/pedidos`, `GET /v1/pedidos/{id}` y el webhook, y el test de contrato los valida igual.
+- **Integrante 3:** la base `stock` con su usuario ya se crea en el Postgres del compose (`STOCK_DB`, `STOCK_DB_USER`, `STOCK_DB_PASSWORD`). El mock de FAV (`services/import-service/internal/favmock`) ya tiene `POST /v1/pedidos`, `GET /v1/pedidos/{id}` y manda el webhook firmado, validados por el test de contrato.
 - **Integrante 4:** el mock de FAV se publica en `localhost:8090` y la UI de RabbitMQ en `localhost:15672`, para el tablero y el Game Day (`POST /_mock/modo {"modo":"caido"}`).
 
 ### Integrante 2: Lectura rápida: caché y búsqueda en `proveedores-service`
@@ -126,45 +126,50 @@ Documentación:
 
 Rama: `feat/stock-service`. Es **la operación crítica de la defensa** (D4) y el **segundo patrón** (en capas).
 
-- [ ] `stock-service` en Go, en capas (handler → service → repository), con su propia base PostgreSQL
-- [ ] Reserva de stock **sin sobreventa** con `SELECT … FOR UPDATE` dentro de una transacción (RN-13)
-- [ ] Test de concurrencia: N reservas simultáneas sobre el mismo producto nunca superan el disponible
-- [ ] Punto de reorden y orden de reposición, una sola abierta por producto (RN-14, RN-15)
-- [ ] Le pide a `proveedores-service` el mejor proveedor (timeout 1 s y 2 reintentos, [ADR-005](adr/ADR-005-comunicacion.md))
-- [ ] Pedido a FAV con `Idempotency-Key` y receptor del webhook con firma HMAC (directo, fuera del gateway)
-- [ ] Tests unitarios de las transiciones de la orden y de integración contra PostgreSQL real
+- [x] `stock-service` en Go, en capas (handler → service → repository), con su propia base PostgreSQL
+- [x] Reserva de stock **sin sobreventa** con `SELECT … FOR UPDATE` dentro de una transacción (RN-13)
+- [x] Test de concurrencia: N reservas simultáneas sobre el mismo producto nunca superan el disponible
+- [x] Punto de reorden y orden de reposición, una sola abierta por producto (RN-14, RN-15)
+- [x] Le pide a `proveedores-service` el mejor proveedor (timeout 1 s y 2 reintentos, [ADR-005](adr/ADR-005-comunicacion.md))
+- [x] Pedido a FAV con `Idempotency-Key` y receptor del webhook con firma HMAC (directo, fuera del gateway). Lo terminó el Integrante 1 el 06/11, junto con los pedidos en el mock de FAV y su test de contrato
+- [x] Tests unitarios de las transiciones de la orden y de integración contra PostgreSQL real
+
+Quedó pendiente (anotado en ADR-009, sección *Pendiente*): circuit breaker en los pedidos, pasar a `EN_REVISION` un intento sin respuesta en 24 h, y la URL pública del webhook para el FAV desplegado (parte de la nube).
 
 Documentación:
-- [ ] **ADR-004 (D4, consistencia y concurrencia):** es el único obligatorio que todavía no existe
-- [ ] ADR-002 actualizado con el segundo patrón ya implementado
-- [ ] ADR-009 (pedidos) a "aceptado"
-- [ ] `SPEC.md`: HU de stock y reposición de "propuesto" a "implementado"
+- [x] **ADR-004 (D4, consistencia y concurrencia):** es el único obligatorio que todavía no existe
+- [x] ADR-002 actualizado con el segundo patrón ya implementado
+- [x] ADR-009 (pedidos) a "aceptado"
+- [x] `SPEC.md`: HU de stock y reposición de "propuesto" a "implementado"
 
 ### Integrante 4: Entrada, frontend, nube y operación
 
 Rama: `feat/frontend-nube`. Es lo que se ve en la presentación.
 
 Gateway:
-- [ ] Login de usuario (JWT) para el frontend, sin romper el `X-API-Key` del grupo de paneles solares
-- [ ] Rutas hacia búsqueda y `stock-service`
-- [ ] Límite de tráfico (token bucket por clave) con `429` en el contrato
+- [x] Login de usuario (JWT) para el frontend, sin romper el `X-API-Key` del grupo de paneles solares
+- [x] Ruta hacia `stock-service` (`/api/v1/stock/`, sin el webhook)
+- [x] Ruta hacia búsqueda (`/api/v1/productos/buscar`, la sumó la parte 2; con el merge acepta también el JWT)
+- [x] Límite de tráfico (token bucket por clave) con `429` en el contrato (1.1.0)
 
 Frontend:
-- [ ] Web simple: login → buscar producto → ver el ranking de proveedores → reservar stock. **Llama solo al gateway**, nunca a FAV
+- [x] Web simple: login → elegir producto → ver el ranking de proveedores → reservar stock. **Llama solo al gateway**, nunca a FAV. Embebida en el gateway (`/`)
+- [x] Búsqueda por texto en vez de la lista de SKUs: resultados mientras se escribe, con tolerancia a errores de tipeo; si Meilisearch no responde, se puede escribir el SKU exacto
 
 Nube:
-- [ ] VM con el compose (opción A de ADR-013) y la URL pública en `README.md` y `docs/contracts/README.md`
+- [x] Override `docker-compose.nube.yml`, script `infra/nube/instalar.sh` y guía `docs/NUBE.md`
+- [ ] Crear la VM y poner la URL pública en `README.md`, `docs/NUBE.md` y `docs/contracts/README.md`
 - [ ] Pasarle la URL y la clave al grupo de paneles solares
 
 Operación:
-- [ ] Métricas (Prometheus) y tablero (Grafana) con tasa, errores y latencia de la capacidad
-- [ ] Una alerta (por ejemplo, p95 > 300 ms o errores > 1 %)
-- [ ] Pipeline de CI (GitHub Actions) que corre los tests en cada push
+- [x] Métricas (Prometheus) y tablero (Grafana) con tasa, errores y latencia de la capacidad
+- [x] Alertas: p95 > 300 ms, errores > 1 % y sin réplicas sanas (esta última probada: dispara en 48 s)
+- [x] Pipeline de CI (GitHub Actions) que corre los tests en cada push (sin probar todavía en GitHub)
 
 Documentación:
-- [ ] ADR-008 actualizado si el contrato cambia (`429`, URL pública) y ADR-011 completo (métricas, objetivo de servicio, alerta)
-- [ ] ADR-010 con el límite de tráfico implementado
-- [ ] `ARCHITECTURE.md`: diagramas con los servicios nuevos y limitaciones actualizadas
+- [x] ADR-008 actualizado (`429`; la URL pública cuando exista) y ADR-011 completo (métricas, objetivo de servicio, alertas)
+- [x] ADR-010 con el límite de tráfico implementado y medido
+- [x] `ARCHITECTURE.md`: diagramas con los servicios nuevos y limitaciones actualizadas
 
 ## Cronograma
 

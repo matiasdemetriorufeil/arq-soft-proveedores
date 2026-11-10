@@ -1,0 +1,44 @@
+# Alertas de la capacidad publicada (ADR-011). El objetivo de servicio es:
+# p95 por debajo de 300 ms y menos del 1 % de errores 5xx, medidos en el
+# gateway. Cada alerta salta si el objetivo se incumple durante 2 minutos
+# seguidos, para no disparar por un pico aislado.
+#
+# Se ven en http://localhost:9090/alerts y en el tablero de Grafana. No hay
+# Alertmanager: para el TP alcanza con verlas, no hace falta que manden un mail.
+groups:
+  - name: capacidad
+    rules:
+      - alert: LatenciaP95Alta
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(gateway_http_request_duration_seconds_bucket{ruta="GET /api/v1/proveedores/recomendados"}[1m]))
+          ) > 0.3
+        for: 2m
+        labels:
+          severidad: advertencia
+        annotations:
+          resumen: "p95 de la capacidad por encima de 300 ms"
+          descripcion: "El p95 de GET /api/v1/proveedores/recomendados es {{ $value | humanizeDuration }} (objetivo: 300 ms)."
+
+      - alert: ErroresAltos
+        # Solo 5xx: un 4xx es un error del cliente (clave mala, SKU que no
+        # existe, 429) y no habla de la salud del sistema.
+        expr: |
+          sum(rate(gateway_http_requests_total{status=~"5.."}[1m]))
+            / clamp_min(sum(rate(gateway_http_requests_total[1m])), 1e-9)
+          > 0.01
+        for: 2m
+        labels:
+          severidad: critica
+        annotations:
+          resumen: "Más del 1 % de las requests terminan en 5xx"
+          descripcion: "El {{ $value | humanizePercentage }} de las requests del último minuto fallaron con 5xx."
+
+      - alert: SinReplicasSanas
+        expr: gateway_replicas_sanas == 0
+        for: 30s
+        labels:
+          severidad: critica
+        annotations:
+          resumen: "Ninguna réplica de proveedores-service en rotación"
+          descripcion: "El balanceador del gateway no tiene réplicas sanas: la capacidad responde 502."

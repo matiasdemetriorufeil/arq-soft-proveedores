@@ -10,4 +10,5 @@ use (
 	./services/api-gateway
 	./services/import-service
 	./services/proveedores-service
+	./services/stock-service
 )

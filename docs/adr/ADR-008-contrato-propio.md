@@ -1,6 +1,6 @@
 # ADR-008 — Contrato propio (D8)
 
-- **Estado:** aceptado e implementado (contrato v1 operativo)
+- **Estado:** aceptado e implementado (contrato v1 operativo; versión 1.1.0 desde el 06/11, con el límite de tasa)
 - **Fecha:** 2026-10-23
 - **Entrega:** 1 (no se presentó en su fecha) y actualización en la 2 (23/10)
 - **Decisión de la consigna:** D8. Diseño, publicación, compatibilidad y estrategia de versionado de la capacidad ofrecida a otro grupo.
@@ -65,12 +65,13 @@ El grupo consumidor trabaja contra nuestro contrato como contra un sistema que n
 ## Consecuencias aceptadas
 
 - **`X-API-Key` es una autenticación básica.** No identifica personas ni vence solo; si la clave se filtra, hay que rotarla a mano en el gateway y en el servicio.
-- **Sin límite de tasa en v1.** El gateway no limita requests, así que un consumidor que repita llamadas sin control puede saturarnos. Está dicho en el contrato.
+- **Límite de tasa desde 1.1.0 (06/11).** El gateway limita cada clave con un token bucket (50 req/s sostenidas, ráfagas de 100) y responde `429 LIMITE_EXCEDIDO` con `Retry-After` ([ADR-010](ADR-010-resiliencia.md)). Es un cambio **compatible** según nuestras propias reglas (un `code` nuevo): subió la versión menor, la ruta sigue siendo `/api/v1/` y se anotó en el historial del contrato. Un consumidor que no maneje el `429` lo va a ver como un error más; por eso se le avisa al grupo de paneles solares junto con la URL pública.
+- **El frontend no es parte del contrato.** El login con JWT y las rutas de stock son para nuestro propio frontend: no se versionan ni se publican en el `openapi.yaml` de la capacidad.
 - **Los importes son `number` de coma flotante y el contrato no declara moneda.** Está avisado en el contrato; agregar un campo `moneda` sería un cambio compatible.
 - **El consumidor tiene que tener un timeout mayor al del gateway (3 s)** para recibir el error `504` en lugar de cortar antes. Lo recomendamos, pero no podemos obligarlo.
 - **Mantener `/v1/` mientras exista `/v2/` duplica trabajo.** Lo aceptamos para no romper al consumidor.
 - **Solo describimos la operación de consulta.** Los chequeos `/healthz` y `/readyz` aparecen en el OpenAPI como "operación", sin garantía de versionado.
-- **Hoy la capacidad corre solo en local.** La URL pública llega con el despliegue en la nube (presentación grupal).
+- **La URL pública depende de la VM.** El despliegue está preparado ([`docs/NUBE.md`](../NUBE.md)); la URL se anota en el contrato cuando la VM exista.
 
 ## Con qué lo medimos
 

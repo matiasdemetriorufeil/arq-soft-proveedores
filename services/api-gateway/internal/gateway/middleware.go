@@ -3,7 +3,6 @@ package gateway
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"log/slog"
 	"net/http"
@@ -22,6 +21,7 @@ const (
 	ctxRequestID ctxKey = iota
 	ctxLogger
 	ctxIntento
+	ctxIdentidad
 )
 
 // nombreTracer identifica a la librería que instrumenta, no al servicio: el
@@ -109,7 +109,7 @@ func (r *respuestaConEstado) statusObservado(req *http.Request) int {
 // flujo, resuelve el X-Request-ID, deja en el contexto un logger que ya trae
 // `request_id` —y `trace_id`, porque el span está en ese contexto— y al cerrar
 // registra una línea por request.
-func conObservabilidad(base *slog.Logger, next http.Handler) http.Handler {
+func conObservabilidad(base *slog.Logger, m *metricas, next http.Handler) http.Handler {
 	tracer := otel.Tracer(nombreTracer)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		inicio := time.Now()
@@ -136,9 +136,13 @@ func conObservabilidad(base *slog.Logger, next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxLogger, log)
 
 		rw := &respuestaConEstado{ResponseWriter: w}
-		next.ServeHTTP(rw, r.WithContext(ctx))
+		// El mux anota en esta misma request el patrón que eligió
+		// (r.Pattern): es la etiqueta `ruta` de las métricas.
+		interna := r.WithContext(ctx)
+		next.ServeHTTP(rw, interna)
 
 		status := rw.statusObservado(r)
+		m.observar(interna.Pattern, r.Method, status, time.Since(inicio))
 		span.SetAttributes(attribute.Int("http.response.status_code", status))
 		if status >= http.StatusInternalServerError {
 			span.SetStatus(codes.Error, http.StatusText(status))
@@ -160,32 +164,5 @@ func conObservabilidad(base *slog.Logger, next http.Handler) http.Handler {
 			slog.Float64("duration_ms", float64(time.Since(inicio).Microseconds())/1000),
 			slog.String("remote_addr", r.RemoteAddr),
 		)
-	})
-}
-
-// conAPIKey exige un X-API-Key de la lista configurada antes de llegar al
-// upstream. La comparación es en tiempo constante para no filtrar por latencia
-// cuánto prefijo de la clave acertó quien la manda.
-func conAPIKey(keys []string, next http.Handler) http.Handler {
-	validas := make([][]byte, 0, len(keys))
-	for _, k := range keys {
-		validas = append(validas, []byte(k))
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		recibida := []byte(r.Header.Get(headerAPIKey))
-		ok := false
-		if len(recibida) > 0 {
-			for _, k := range validas {
-				if subtle.ConstantTimeCompare(recibida, k) == 1 {
-					ok = true
-				}
-			}
-		}
-		if !ok {
-			escribirProblema(w, r, http.StatusUnauthorized, CodigoNoAutorizado,
-				"falta el header X-API-Key o no es válido")
-			return
-		}
-		next.ServeHTTP(w, r)
 	})
 }

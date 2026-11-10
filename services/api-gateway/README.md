@@ -1,8 +1,9 @@
 # api-gateway
 
-Entrada única al sistema. Todo lo que entra pasa por acá: valida la API key,
-resuelve el `X-Request-ID`, abre el span padre de la traza y reparte la
-capacidad de proveedores entre las réplicas de `proveedores-service`.
+Entrada única al sistema. Todo lo que entra pasa por acá: autentica (API key o
+JWT del frontend), aplica el límite de tráfico, resuelve el `X-Request-ID`,
+abre el span padre de la traza, reparte la capacidad de proveedores entre las
+réplicas de `proveedores-service`, publica `stock-service` y sirve el frontend.
 
 No tiene base de datos ni lógica de dominio: si una respuesta tiene datos, los
 puso el servicio.
@@ -11,8 +12,11 @@ puso el servicio.
 
 | Ruta | Qué hace |
 |---|---|
-| `GET /api/v1/proveedores/recomendados` | Reenvía a `proveedores-service`. Exige `X-API-Key`. Path, query y cuerpo viajan tal cual. |
-| `GET /api/v1/productos/buscar` | Igual que la anterior. No es parte del contrato publicado a otros grupos ([ADR-006](../../docs/adr/ADR-006-busqueda.md)). |
+| `GET /api/v1/proveedores/recomendados` | Reenvía a `proveedores-service`. Exige `X-API-Key` o JWT. Path, query y cuerpo viajan tal cual. |
+| `GET /api/v1/productos/buscar` | Igual que la anterior: búsqueda por texto en Meilisearch. La usa el frontend; no es parte del contrato publicado a otros grupos ([ADR-006](../../docs/adr/ADR-006-busqueda.md)). |
+| `* /api/v1/stock/…` | Reenvía a `stock-service` (consultar stock, reservar, órdenes). Exige `X-API-Key` o JWT. Una sola instancia, sin balanceo ni reintento: la reserva es un `POST` y reintentarla con su `Idempotency-Key` es decisión del cliente. **`/webhooks/fav` no se publica**: FAV lo llama directo (ADR-009). Solo si está `STOCK_URL`. |
+| `POST /api/v1/auth/login` | Cambia `{"usuario","contrasena"}` por `{"access_token","token_type":"Bearer","expires_in","usuario"}`. Limitado por IP. Solo si están `USUARIOS` y `JWT_SECRETO`. |
+| `GET /` y `GET /web/…` | El frontend: HTML, CSS y JS embebidos en el binario (`internal/gateway/web/`). Sin build ni framework. |
 | `GET /healthz` | 200 siempre que el proceso atienda. No mira a los upstreams: es el chequeo del proceso, no del sistema. |
 | `GET /readyz` | 200 si queda alguna réplica sana; 503 si ninguna responde. Es el healthcheck del contenedor. |
 
@@ -38,9 +42,57 @@ código: la misma imagen sirve para cualquier ambiente.
 | `TIMEOUT_UPSTREAM` | no | `3s` | Cuánto espera a una réplica antes de devolver 504. |
 | `INTERVALO_SALUD` | no | `5s` | Cada cuánto sondea `/healthz` de cada réplica. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | — | Colector OTLP/HTTP (`http://jaeger:4318`). Sin esta variable el gateway arranca igual, sin exportar trazas. |
+| `STOCK_URL` | no | — | Base de `stock-service` (`http://stock-service:8080`). Sin ella, `/api/v1/stock/` devuelve 404. |
+| `USUARIOS` | no | — | Usuarios del frontend, `usuario:contraseña` separados por coma. |
+| `JWT_SECRETO` | no | — | Secreto HS256 de los tokens, 32 caracteres o más. Sin él o sin `USUARIOS`, no hay login. |
+| `DURACION_JWT` | no | `1h` | Vigencia del token. |
+| `CLAVE_INTERNA` | no | primera de `API_KEYS` | `X-API-Key` con la que el gateway llama a los servicios cuando la request entró con JWT. |
+| `LIMITE_POR_SEGUNDO` / `LIMITE_RAFAGA` | no | `50` / `100` | Token bucket por identidad. `0` apaga el límite. |
+| `LOGIN_POR_SEGUNDO` / `LOGIN_RAFAGA` | no | `0.2` / `5` | Token bucket del login, por IP. |
+| `PUERTO_METRICAS` | no | `9091` | Puerto de `/metrics` (Prometheus). El compose no lo publica. |
 
 Sin `UPSTREAMS_PROVEEDORES` o sin `API_KEYS` el proceso no arranca: es mejor que
 quede claro en el arranque que descubrirlo con un 502 en la demo.
+
+## Autenticación
+
+Dos formas de entrar, y los servicios de atrás no se enteran de cuál se usó:
+
+- **`X-API-Key`**, para otros sistemas (el grupo de paneles solares). Igual que
+  en la Entrega 2: el header viaja tal cual y el servicio lo vuelve a validar.
+- **`Authorization: Bearer <JWT>`**, para el frontend. El token es HS256, lo
+  firma el gateway en el login y vale `DURACION_JWT`. Hecho con la biblioteca
+  estándar (`jwt.go`): el header tiene que ser exactamente
+  `{"alg":"HS256","typ":"JWT"}`, así que un `alg: none` no se acepta. Al
+  reenviar, el gateway **saca el `Authorization` y pone `CLAVE_INTERNA`**: el
+  token no sale del gateway y el usuario nunca ve una API key.
+
+Si viene una API key inválida es 401 aunque venga también un token válido.
+
+## Límite de tráfico
+
+Token bucket en memoria (`limite.go`, [ADR-010](../../docs/adr/ADR-010-resiliencia.md)):
+
+- **Por identidad**: cada API key (identificada por un prefijo de su SHA-256,
+  nunca en claro) y cada usuario tienen su propio balde. Se aplica **después**
+  de autenticar, así que una request sin credenciales no gasta el balde de
+  nadie.
+- **Por IP en el login**, para frenar la fuerza bruta.
+- Lo que excede recibe **`429 LIMITE_EXCEDIDO`** con **`Retry-After`** en
+  segundos, sin llegar al upstream, y suma a `gateway_limite_rechazos_total`.
+
+## Métricas
+
+`GET /metrics` en `PUERTO_METRICAS` (otro puerto, no publicado):
+
+| Métrica | Tipo | Etiquetas |
+|---|---|---|
+| `gateway_http_requests_total` | counter | `ruta` (patrón del mux, nunca el path con el SKU), `metodo`, `status` |
+| `gateway_http_request_duration_seconds` | histograma | `ruta`; incluye el corte de 0,3 s del objetivo de p95 |
+| `gateway_limite_rechazos_total` | counter | — |
+| `gateway_replicas_sanas` | gauge | — |
+
+Prometheus, las alertas y el tablero de Grafana están en [`infra/`](../../infra) ([ADR-011](../../docs/adr/ADR-011-observabilidad.md)).
 
 ## Balanceo
 
@@ -67,10 +119,13 @@ En `application/problem+json`, con la misma forma que los del servicio
 
 | Status | `code` | Cuándo |
 |---|---|---|
-| 401 | `NO_AUTORIZADO` | falta `X-API-Key` o no es válida. No se llama al upstream. |
+| 400 | `PARAMETRO_INVALIDO` | login con un cuerpo mal formado. |
+| 401 | `NO_AUTORIZADO` | falta `X-API-Key` o JWT, o no son válidos. No se llama al upstream. |
+| 401 | `CREDENCIALES_INVALIDAS` | login con usuario o contraseña incorrectos (mismo error para los dos casos). |
 | 404 | `RUTA_NO_ENCONTRADA` | la ruta no la expone el gateway. |
-| 502 | `NO_DISPONIBLE` | ninguna réplica responde. |
-| 504 | `NO_DISPONIBLE` | la réplica no contestó dentro de `TIMEOUT_UPSTREAM`. |
+| 429 | `LIMITE_EXCEDIDO` | se superó el límite de tráfico; trae `Retry-After`. |
+| 502 | `NO_DISPONIBLE` | ninguna réplica responde, o `stock-service` no responde. |
+| 504 | `NO_DISPONIBLE` | la réplica (o `stock-service`) no contestó dentro de `TIMEOUT_UPSTREAM`. |
 
 Los errores que devuelve el servicio (`PARAMETRO_INVALIDO`,
 `PRODUCTO_NO_ENCONTRADO`, su propio `NO_DISPONIBLE`) pasan tal cual: el gateway
@@ -116,7 +171,9 @@ go test ./... -cover
 ```
 
 No necesitan Docker: las réplicas son `httptest.Server` y, sin endpoint OTLP,
-las trazas son no-op. Hay un test por fila de la matriz de casos del plan.
+las trazas son no-op. Hay un test por fila de la matriz de casos del plan;
+lo de la Entrega 3 (JWT, login, límite, stock, métricas y frontend) está en
+`entrega3_test.go`.
 
 ## Decisiones que afectan a los demás
 

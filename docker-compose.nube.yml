@@ -1,0 +1,32 @@
+# Override para la VM en la nube (ADR-013, opción A). Se usa junto con el
+# compose de siempre:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.nube.yml up -d --build
+#
+# Lo único que cambia es qué sale a internet: solo el gateway (la capacidad,
+# el login y el frontend). Las consolas de operación quedan atadas a
+# 127.0.0.1 de la VM y se ven con un túnel SSH (ver docs/NUBE.md); el mock de
+# FAV no se publica, así que nadie de afuera puede "apagarlo".
+#
+# `!override` reemplaza la lista de puertos en lugar de sumarla. Necesita
+# Docker Compose 2.24.4 o más nuevo.
+services:
+  jaeger:
+    ports: !override
+      - "127.0.0.1:16686:16686"
+    # Tope de memoria que pide ADR-013: sin él, Jaeger guarda todas las
+    # trazas en memoria y llegó a 1,6 GB en una rampa de 4 minutos.
+    environment:
+      MEMORY_MAX_TRACES: "20000"
+  rabbitmq:
+    ports: !override
+      - "127.0.0.1:15672:15672"
+  prometheus:
+    ports: !override
+      - "127.0.0.1:9090:9090"
+  grafana:
+    ports: !override
+      - "127.0.0.1:3000:3000"
+  fav-mock:
+    ports: !override
+      - "127.0.0.1:8090:8090"
