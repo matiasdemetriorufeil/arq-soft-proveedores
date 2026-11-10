@@ -33,14 +33,14 @@
       <div class="tarjeta">
         <h2>1 · Elegí un producto</h2>
         <form id="form-buscar" class="fila">
-          <label class="crece">Producto (SKU)
-            <input name="sku" list="skus" placeholder="PAN-450W-MONO" required autocomplete="off">
-            <datalist id="skus"></datalist>
+          <label class="crece">Buscar producto
+            <input name="q" type="search" placeholder="panel 450, inversor híbrido, remera…" required autocomplete="off">
           </label>
           <label>Cantidad <input name="cantidad" type="number" min="1" value="10" required></label>
           <button type="submit">Ver proveedores</button>
         </form>
-        <p class="nota" id="nota-busqueda">La búsqueda por texto llega con Meilisearch; por ahora se elige el SKU de la lista.</p>
+        <ul id="resultados" class="resultados" hidden></ul>
+        <p class="nota" id="nota-busqueda">Búsqueda por texto en el catálogo indexado (Meilisearch), con tolerancia a errores de tipeo. Elegí un resultado, o escribí el SKU exacto.</p>
       </div>
 
       <!-- 3. Ranking -->

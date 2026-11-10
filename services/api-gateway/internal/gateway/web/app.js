@@ -1,17 +1,6 @@
-// Frontend del TP: login → elegir producto → ranking de proveedores → reservar
+// Frontend del TP: login → buscar producto → ranking de proveedores → reservar
 // stock. Solo le habla al api-gateway, con el JWT que devuelve el login.
 "use strict";
-
-// SKUs del seed, mientras no esté la búsqueda indexada (Meilisearch, parte 2).
-const SKUS = [
-  "PAN-450W-MONO", "PAN-550W-MONO", "PAN-600W-BIF", "PAN-330W-POLI", "PAN-100W-FLEX",
-  "INV-3KW-ONG", "INV-5KW-ONG", "INV-5KW-HIB", "INV-10KW-TRI", "MIC-800W",
-  "BAT-LFP-5KWH", "BAT-LFP-10KWH", "BAT-GEL-200AH", "REG-MPPT-60A", "REG-PWM-30A",
-  "CAB-SOLAR-4MM", "CAB-SOLAR-6MM", "CON-MC4-PAR", "CON-MC4-Y", "EST-ALU-TECHO",
-  "EST-ALU-PISO", "RIEL-ALU-2M", "GRAP-MED", "GRAP-FIN", "PROT-DC-1000V",
-  "FUS-DC-15A", "SECC-DC-32A", "TAB-STRING-2E", "MED-BIDIR", "MON-WIFI",
-  "FAV-var-remera-basica-blanca-m", "FAV-var-jean-mom-celeste-38", "FAV-var-buzo-canguro-gris-m",
-];
 
 const $ = (id) => document.getElementById(id);
 const pesos = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" });
@@ -80,10 +69,94 @@ $("form-login").addEventListener("submit", async (ev) => {
 
 $("salir").addEventListener("click", salir);
 
+// --- Búsqueda (GET /api/v1/productos/buscar, Meilisearch) ---
+// Busca mientras se escribe, con una pausa de 250 ms para no mandar una request
+// por tecla. `vuelta` descarta respuestas viejas que lleguen tarde. Si la
+// búsqueda no está disponible, el texto se usa como SKU exacto: el ranking no
+// depende del índice (ADR-006).
+let resultados = [];
+let elegido = null;   // { sku, nombre }
+let pausa = null;
+let vuelta = 0;
+
+const NOTA_BUSQUEDA = $("nota-busqueda").textContent;
+
+$("form-buscar").q.addEventListener("input", (ev) => {
+  elegido = null;
+  clearTimeout(pausa);
+  const q = ev.target.value.trim();
+  if (q.length < 2) { pintarResultados(null); return; }
+  pausa = setTimeout(() => buscar(q), 250);
+});
+
+async function buscar(q) {
+  const mia = ++vuelta;
+  try {
+    const r = await api("GET", `/api/v1/productos/buscar?q=${encodeURIComponent(q)}&tamanio=8`);
+    if (mia !== vuelta) return;
+    $("nota-busqueda").textContent = NOTA_BUSQUEDA;
+    pintarResultados(r.resultados || []);
+  } catch (e) {
+    if (mia !== vuelta) return;
+    pintarResultados(null);
+    $("nota-busqueda").textContent = `La búsqueda no está disponible (${e.message}). Escribí el SKU exacto y tocá "Ver proveedores".`;
+  }
+}
+
+function pintarResultados(lista) {
+  resultados = lista || [];
+  const ul = $("resultados");
+  ul.replaceChildren();
+  if (lista === null) { ul.hidden = true; return; }
+  if (lista.length === 0) {
+    const li = document.createElement("li");
+    li.className = "vacio";
+    li.textContent = "Sin resultados. Probá con otra palabra o con el SKU exacto.";
+    ul.appendChild(li);
+  }
+  lista.forEach((p) => {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.type = "button";
+    if (elegido && elegido.sku === p.sku) b.className = "elegido";
+    const nombre = document.createElement("span");
+    nombre.className = "nombre";
+    nombre.textContent = p.nombre || p.sku;
+    const precio = document.createElement("span");
+    precio.className = "precio";
+    precio.textContent = p.precio_min == null ? "sin stock" : "desde " + pesos.format(p.precio_min);
+    const detalle = document.createElement("span");
+    detalle.className = "detalle";
+    const prov = p.proveedores_con_stock === 1 ? "1 proveedor" : `${p.proveedores_con_stock} proveedores`;
+    detalle.textContent = [p.sku, p.categoria, prov + " con stock"].filter(Boolean).join(" · ");
+    b.append(nombre, precio, detalle);
+    b.addEventListener("click", () => elegir(p));
+    li.appendChild(b);
+    ul.appendChild(li);
+  });
+  ul.hidden = false;
+}
+
+function elegir(p) {
+  elegido = { sku: p.sku, nombre: p.nombre || p.sku };
+  $("form-buscar").q.value = elegido.nombre;
+  pintarResultados(resultados);
+  $("form-buscar").requestSubmit();
+}
+
+// skuDelFormulario resuelve qué producto pidió el usuario: el resultado que
+// eligió, si no el primero de la lista, y si no hay lista, el texto tal cual.
+function skuDelFormulario(texto) {
+  if (elegido) return elegido.sku;
+  if (resultados.length > 0) { elegir(resultados[0]); return null; }
+  return texto;
+}
+
 $("form-buscar").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = new FormData(ev.target);
-  const sku = String(f.get("sku")).trim();
+  const sku = skuDelFormulario(String(f.get("q")).trim());
+  if (!sku) return;   // elegir() ya volvió a mandar el formulario
   const cantidad = Number(f.get("cantidad"));
   $("error-app").textContent = "";
   $("resultado-reserva").textContent = "";
@@ -161,8 +234,6 @@ $("form-reservar").addEventListener("submit", async (ev) => {
   }
 });
 
-// Arranque: lista de SKUs y sesión previa si sigue vigente.
-const lista = $("skus");
-SKUS.forEach((s) => { const o = document.createElement("option"); o.value = s; lista.appendChild(o); });
+// Arranque: sesión previa si sigue vigente.
 const previa = sesion.leer();
 if (previa && previa.vence > Date.now()) { actual = previa; mostrar(true); } else { mostrar(false); }

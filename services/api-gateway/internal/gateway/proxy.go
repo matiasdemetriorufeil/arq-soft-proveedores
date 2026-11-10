@@ -23,8 +23,8 @@ const (
 	rutaCapacidad = "/api/v1/proveedores/recomendados"
 	// rutaBusqueda no es parte del contrato publicado: la usa el frontend.
 	rutaBusqueda = "/api/v1/productos/buscar"
-	rutaSalud     = "/healthz"
-	rutaListo     = "/readyz"
+	rutaSalud    = "/healthz"
+	rutaListo    = "/readyz"
 )
 
 // timeoutUpstreamPorDefecto se aplica si Config llega sin timeout, para que un

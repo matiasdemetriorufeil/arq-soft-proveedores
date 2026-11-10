@@ -149,12 +149,12 @@ Rama: `feat/frontend-nube`. Es lo que se ve en la presentación.
 Gateway:
 - [x] Login de usuario (JWT) para el frontend, sin romper el `X-API-Key` del grupo de paneles solares
 - [x] Ruta hacia `stock-service` (`/api/v1/stock/`, sin el webhook)
-- [ ] Ruta hacia búsqueda (espera el endpoint de la parte 2)
+- [x] Ruta hacia búsqueda (`/api/v1/productos/buscar`, la sumó la parte 2; con el merge acepta también el JWT)
 - [x] Límite de tráfico (token bucket por clave) con `429` en el contrato (1.1.0)
 
 Frontend:
 - [x] Web simple: login → elegir producto → ver el ranking de proveedores → reservar stock. **Llama solo al gateway**, nunca a FAV. Embebida en el gateway (`/`)
-- [ ] Búsqueda por texto en vez de la lista de SKUs (cuando esté Meilisearch)
+- [x] Búsqueda por texto en vez de la lista de SKUs: resultados mientras se escribe, con tolerancia a errores de tipeo; si Meilisearch no responde, se puede escribir el SKU exacto
 
 Nube:
 - [x] Override `docker-compose.nube.yml`, script `infra/nube/instalar.sh` y guía `docs/NUBE.md`

@@ -178,6 +178,27 @@ func TestLoginCorrectoYConElTokenSeLlegaALaCapacidad(t *testing.T) {
 	}
 }
 
+// El frontend busca con el JWT: la búsqueda tiene que aceptarlo igual que la
+// capacidad, y al servicio le llega la clave interna, no el token.
+func TestConElTokenSeLlegaALaBusqueda(t *testing.T) {
+	up := nuevaReplica(t, opcionesReplica{})
+	h := armarGatewayE3(t, up, opcionesE3{})
+
+	tok := loguear(t, h)
+	destino := rutaBusqueda + "?q=panel&tamanio=8"
+	rec := hacer(h, http.MethodGet, destino, "", conBearer(tok))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; %s", rec.Code, rec.Body.String())
+	}
+	got := up.ultima.Load()
+	if got.url != destino {
+		t.Errorf("le llegó %q, quiero %q", got.url, destino)
+	}
+	if got.headers.Get(headerAPIKey) != claveInterna || got.headers.Get(headerAutorizacion) != "" {
+		t.Error("hacia el servicio tiene que viajar la clave interna y no el token")
+	}
+}
+
 func TestLoginRechazado(t *testing.T) {
 	up := nuevaReplica(t, opcionesReplica{})
 	h := armarGatewayE3(t, up, opcionesE3{})
