@@ -112,6 +112,17 @@ func (b *Balanceador) Otra(excluir *Instancia) (*Instancia, bool) {
 	return nil, false
 }
 
+// Sanas cuenta las réplicas en rotación; es la métrica gateway_replicas_sanas.
+func (b *Balanceador) Sanas() int {
+	n := 0
+	for _, i := range b.instancias {
+		if i.Sana() {
+			n++
+		}
+	}
+	return n
+}
+
 // AlgunaSana es lo que responde /readyz: el gateway está listo si tiene al
 // menos una réplica a la que mandar requests.
 func (b *Balanceador) AlgunaSana() bool {

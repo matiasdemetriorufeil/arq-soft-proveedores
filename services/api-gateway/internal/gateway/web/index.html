@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proveedores recomendados</title>
+  <link rel="stylesheet" href="/web/estilos.css">
+  <script src="/web/app.js" defer></script>
+</head>
+<body>
+  <header class="barra">
+    <span class="marca">Proveedores recomendados</span>
+    <span id="sesion" class="sesion" hidden>
+      <span id="usuario-actual"></span>
+      <button id="salir" class="secundario" type="button">Salir</button>
+    </span>
+  </header>
+
+  <main>
+    <!-- 1. Ingreso -->
+    <section id="vista-login" class="tarjeta angosta">
+      <h1>Ingresar</h1>
+      <form id="form-login">
+        <label>Usuario <input name="usuario" autocomplete="username" required></label>
+        <label>Contraseña <input name="contrasena" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Entrar</button>
+        <p class="error" id="error-login" role="alert"></p>
+      </form>
+    </section>
+
+    <section id="vista-app" hidden>
+      <!-- 2. Buscar producto -->
+      <div class="tarjeta">
+        <h2>1 · Elegí un producto</h2>
+        <form id="form-buscar" class="fila">
+          <label class="crece">Producto (SKU)
+            <input name="sku" list="skus" placeholder="PAN-450W-MONO" required autocomplete="off">
+            <datalist id="skus"></datalist>
+          </label>
+          <label>Cantidad <input name="cantidad" type="number" min="1" value="10" required></label>
+          <button type="submit">Ver proveedores</button>
+        </form>
+        <p class="nota" id="nota-busqueda">La búsqueda por texto llega con Meilisearch; por ahora se elige el SKU de la lista.</p>
+      </div>
+
+      <!-- 3. Ranking -->
+      <div class="tarjeta" id="bloque-ranking" hidden>
+        <h2>2 · Proveedores, del más barato al más caro</h2>
+        <div class="tabla-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Proveedor</th><th class="num">Precio unit.</th><th class="num">Desc.</th><th class="num">Flete</th><th class="num">Stock prov.</th><th class="num">Costo total</th></tr></thead>
+            <tbody id="ranking"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 4. Stock propio y reserva -->
+      <div class="tarjeta" id="bloque-stock" hidden>
+        <h2>3 · Nuestro stock</h2>
+        <dl class="cifras">
+          <div><dt>Disponible</dt><dd id="st-disponible">–</dd></div>
+          <div><dt>Reservado</dt><dd id="st-reservado">–</dd></div>
+          <div><dt>Mínimo</dt><dd id="st-minimo">–</dd></div>
+        </dl>
+        <form id="form-reservar" class="fila">
+          <label>Unidades a reservar <input name="cantidad" type="number" min="1" value="1" required></label>
+          <button type="submit">Reservar</button>
+        </form>
+        <p id="resultado-reserva" role="status"></p>
+      </div>
+
+      <p class="error" id="error-app" role="alert"></p>
+    </section>
+  </main>
+
+  <footer>Todo pasa por el api-gateway · <span id="request-id"></span></footer>
+</body>
+</html>

@@ -25,7 +25,8 @@ go.work
 go.work.sum
 
 # Orquestación y documentación
-docker-compose.yml
+docker-compose*.yml
+infra
 docs
 **/*.md
 

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -28,15 +29,43 @@ const (
 // cero no se traduzca en un contexto ya vencido.
 const timeoutUpstreamPorDefecto = 3 * time.Second
 
-// Config agrupa las dependencias del handler del gateway.
+// Config agrupa las dependencias del handler del gateway. Lo nuevo de la
+// Entrega 3 es opcional: sin usuarios ni secreto no hay login, sin StockURL no
+// se publica stock-service, con LimitePorSegundo en cero no hay límite y sin
+// Metricas no se mide. Así cada pieza se prueba por separado.
 type Config struct {
 	Balanceador     *Balanceador
 	APIKeys         []string
 	TimeoutUpstream time.Duration
 	Logger          *slog.Logger
+
+	// Login del frontend (JWT HS256).
+	Usuarios    map[string]string
+	SecretoJWT  []byte
+	DuracionJWT time.Duration
+	// ClaveInterna es la X-API-Key con la que el gateway llama a los
+	// servicios cuando la request entró con JWT. Por defecto, la primera de
+	// APIKeys.
+	ClaveInterna string
+
+	// StockURL es la base de stock-service, por ejemplo
+	// http://stock-service:8080.
+	StockURL *url.URL
+
+	// Límite de tráfico por identidad (token bucket) y, aparte, por IP en el
+	// login.
+	LimitePorSegundo float64
+	LimiteRafaga     int
+	LoginPorSegundo  float64
+	LoginRafaga      int
+
+	Metricas *metricas
 }
 
-// NuevoHandler arma el router con sus middlewares.
+// NuevoHandler arma el router con sus middlewares. El orden de cada ruta
+// protegida es: observabilidad → autenticación → límite de tráfico → upstream.
+// Autenticar antes de limitar hace que el balde sea de quien de verdad hace la
+// request, y que una request sin credenciales no gaste el de nadie.
 func NuevoHandler(cfg Config) http.Handler {
 	p := &proxy{bal: cfg.Balanceador, timeout: cfg.TimeoutUpstream}
 	if p.timeout <= 0 {
@@ -52,13 +81,27 @@ func NuevoHandler(cfg Config) http.Handler {
 		ErrorLog:       slog.NewLogLogger(cfg.Logger.Handler(), slog.LevelError),
 	}
 
+	auth := nuevoAutenticador(cfg)
+	lim := nuevoLimitador(cfg.LimitePorSegundo, cfg.LimiteRafaga)
+	protegida := func(h http.Handler) http.Handler {
+		return auth.exigir(lim.limitar(cfg.Metricas, h))
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("GET "+rutaCapacidad, conAPIKey(cfg.APIKeys, http.HandlerFunc(p.reenviar)))
+	mux.Handle("GET "+rutaCapacidad, protegida(http.HandlerFunc(p.reenviar)))
+	if cfg.StockURL != nil {
+		mux.Handle(prefijoStock, protegida(nuevoProxyStock(cfg.StockURL, p.timeout, cfg.Logger)))
+	}
+	if auth.loginHabilitado() {
+		limLogin := nuevoLimitador(cfg.LoginPorSegundo, cfg.LoginRafaga)
+		mux.Handle("POST "+rutaLogin, limLogin.limitarPorIP(cfg.Metricas, http.HandlerFunc(auth.login)))
+	}
+	registrarFrontend(mux)
 	mux.HandleFunc("GET "+rutaSalud, p.healthz)
 	mux.HandleFunc("GET "+rutaListo, p.readyz)
 	mux.HandleFunc("/", noEncontrado)
 
-	return conObservabilidad(cfg.Logger, mux)
+	return conObservabilidad(cfg.Logger, cfg.Metricas, mux)
 }
 
 type proxy struct {

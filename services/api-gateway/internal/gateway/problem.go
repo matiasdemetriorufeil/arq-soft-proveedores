@@ -14,6 +14,14 @@ const (
 	CodigoNoAutorizado     = "NO_AUTORIZADO"
 	CodigoNoDisponible     = "NO_DISPONIBLE"
 	CodigoRutaNoEncontrada = "RUTA_NO_ENCONTRADA"
+	// LIMITE_EXCEDIDO va con 429 y Retry-After (ADR-010). Es nuevo en el
+	// contrato: el grupo de paneles solares tiene que esperar y reintentar.
+	CodigoLimiteExcedido = "LIMITE_EXCEDIDO"
+	// Los del login del frontend. PARAMETRO_INVALIDO es el mismo código que
+	// usan los servicios para un cuerpo o parámetro mal formado.
+	CodigoParametroInvalido     = "PARAMETRO_INVALIDO"
+	CodigoCredencialesInvalidas = "CREDENCIALES_INVALIDAS"
+	CodigoErrorInterno          = "ERROR_INTERNO"
 )
 
 const (
@@ -37,9 +45,13 @@ type Problem struct {
 }
 
 var titulos = map[string]string{
-	CodigoNoAutorizado:     "No autorizado",
-	CodigoNoDisponible:     "Servicio no disponible",
-	CodigoRutaNoEncontrada: "Ruta no encontrada",
+	CodigoNoAutorizado:          "No autorizado",
+	CodigoNoDisponible:          "Servicio no disponible",
+	CodigoRutaNoEncontrada:      "Ruta no encontrada",
+	CodigoLimiteExcedido:        "Límite de tráfico excedido",
+	CodigoParametroInvalido:     "Parámetro inválido",
+	CodigoCredencialesInvalidas: "Credenciales inválidas",
+	CodigoErrorInterno:          "Error interno",
 }
 
 func escribirProblema(w http.ResponseWriter, r *http.Request, status int, code, detail string) {
