@@ -1,0 +1,80 @@
+# Pipeline de CI: corre los tests de cada módulo en cada push y en cada PR.
+#
+# - `unitarios`: go vet + go test (con -race) de los seis módulos. Rápido y sin
+#   dependencias: es el que tiene que estar verde para mergear.
+# - `integracion`: los tests con build tag `integration`, que levantan
+#   PostgreSQL, MongoDB y RabbitMQ reales con testcontainers. Los runners de
+#   GitHub ya traen Docker.
+# - `imagenes`: construye las imágenes de los cuatro servicios, igual que
+#   `docker compose build`, para detectar un Dockerfile roto antes del merge.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unitarios:
+    name: Unitarios (${{ matrix.modulo }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        modulo:
+          - pkg/mensajeria
+          - pkg/observabilidad
+          - services/api-gateway
+          - services/import-service
+          - services/proveedores-service
+          - services/stock-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache-dependency-path: ${{ matrix.modulo }}/go.sum
+      - name: go vet
+        working-directory: ${{ matrix.modulo }}
+        run: go vet ./...
+      - name: go test
+        working-directory: ${{ matrix.modulo }}
+        run: go test -race -count=1 -cover ./...
+
+  integracion:
+    name: Integración (${{ matrix.modulo }})
+    runs-on: ubuntu-latest
+    needs: unitarios
+    strategy:
+      fail-fast: false
+      matrix:
+        modulo:
+          - services/import-service
+          - services/proveedores-service
+          - services/stock-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache-dependency-path: ${{ matrix.modulo }}/go.sum
+      - name: go test -tags=integration
+        working-directory: ${{ matrix.modulo }}
+        run: go test -tags=integration -count=1 -timeout=10m ./...
+
+  imagenes:
+    name: Imágenes Docker
+    runs-on: ubuntu-latest
+    needs: unitarios
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose build
+        run: |
+          cp .env.example .env
+          docker compose build
