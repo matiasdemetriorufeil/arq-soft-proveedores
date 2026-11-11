@@ -1,0 +1,11 @@
+Latencia de la capacidad desde internet contra http://20.226.84.78
+Medido el 11/11/2026 desde Cordoba, Argentina. VM en Azure brazilsouth (Sao Paulo).
+Incluye ida y vuelta de red: es lo que va a ver el consumidor, no latencia de servidor.
+
+1) Primera llamada de un SKU no consultado (cache frio): 176 ms  http=200
+2) El mismo SKU, cacheado, 10 llamadas: mediana 107 ms  min 101  max 127
+
+3) 40 llamadas sobre los 5 modelos de panel:
+     p50 104 ms | p95 128 ms | p99 128 ms | min 99 | max 128
+
+Ninguna llamada se acerco al presupuesto de 1000 ms del consumidor.

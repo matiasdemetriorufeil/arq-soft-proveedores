@@ -7,14 +7,19 @@ en nuestras decisiones internas**. Con este archivo y el
 | | |
 |---|---|
 | **Capacidad** | Dado un producto (SKU) y una cantidad, devuelve los proveedores que conviene elegir, ordenados por costo total. |
-| **Consumidor asignado** | Grupo de paneles solares. |
-| **Versión vigente** | **v1** (contrato `1.0.0`). La versión viaja en la ruta: `/api/v1/...`. |
+| **Consumidores** | Grupo de paneles solares y grupo **Renewable Energy**. Para Renewable hay una hoja de integración aparte: [`para-renewable-energy.md`](para-renewable-energy.md). |
+| **Versión vigente** | **v1** (contrato **`1.1.0`**). La versión mayor viaja en la ruta (`/api/v1/...`); la menor, en el `info.version` del [`openapi.yaml`](openapi.yaml) y en el historial del final. |
 | **Contrato formal** | [`openapi.yaml`](openapi.yaml) (OpenAPI 3.0.3). |
 | **Dónde está** | **<http://20.226.84.78/>** (desplegada en la nube, 11/11/2026). También se puede levantar en local con `docker compose up`, en `http://localhost:8080`. La clave de acceso se entrega por separado: no está en el repositorio. |
 
 ## En 30 segundos
 
 ```bash
+# Contra la instancia desplegada
+curl -H "X-API-Key: <tu-clave>" \
+  "http://20.226.84.78/api/v1/proveedores/recomendados?producto=PAN-550W-MONO&cantidad=10&limite=2"
+
+# O en local, con docker compose up
 curl -H "X-API-Key: <tu-clave>" \
   "http://localhost:8080/api/v1/proveedores/recomendados?producto=PAN-550W-MONO&cantidad=10&limite=2"
 ```
@@ -337,6 +342,7 @@ func leer(res *http.Response) (recs []Recomendacion, reintentable bool, err erro
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| `1.1.0` | 2026-11-11 | **Solo documentación, sin cambio de comportamiento:** se declaran la moneda (**ARS**), las unidades de cada campo, que la operación no tiene efectos (no compra, no reserva, no descuenta) y la frescura de los datos (caché de 60 s). Se agrega la URL desplegada a `servers`. No se sube la versión porque no cambió ningún esquema ni ninguna respuesta. |
 | `1.1.0` | 2026-11-06 | Compatible: límite de tasa por clave en el gateway, con el `code` nuevo `LIMITE_EXCEDIDO` (`429` + `Retry-After`). |
 | `1.0.0` | 2026-10-23 | Primera versión operativa: `GET /api/v1/proveedores/recomendados`, autenticación por `X-API-Key`, errores `problem+json` con cinco `code`. Contrato formal en `openapi.yaml`. |
 
