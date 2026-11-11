@@ -197,10 +197,12 @@ Dos cosas que es mejor poner sobre la mesa antes de que las encuentren:
    congelamiento del 6/11. La URL es <http://20.226.84.78/>. Sin HTTPS, porque no
    hay dominio, y el test de carga no se repitió contra la VM: con 2 vCPU mediría la
    máquina, no la arquitectura.
-2. **FAV nunca publicó su URL.** Todo el consumo está probado contra `fav-mock`, que
-   cumple su OpenAPI v1.1.0, con tests de contrato sobre el catálogo y los pedidos.
-   Era el plan B escrito en el plan de la entrega. Con `FAV_URL` en el `.env` se
-   apunta al real sin cambiar una línea de código.
+2. **FAV publicó su URL el 11/11 y el catálogo ya sale de ahí**, no del mock: se
+   apuntó `FAV_URL` al real sin cambiar una línea de código, como estaba previsto.
+   Dos cosas que conviene decir: su contrato **1.2.0 quitó la consulta de estado del
+   pedido y el webhook**, así que una orden enviada no se cierra sola; y el mock sigue
+   existiendo para los tests de contrato y para simular fallas en el Game Day, que
+   contra su sistema real no se puede.
 
 ## 6. Preguntas probables
 
