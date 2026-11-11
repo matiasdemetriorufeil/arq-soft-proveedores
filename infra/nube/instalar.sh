@@ -83,3 +83,19 @@ echo
 echo ">> listo. Probar desde afuera:"
 echo "   curl http://$IP/readyz"
 echo "   frontend: http://$IP/"
+
+# Las variables de FAV no se generan al azar: son datos que entrega el otro
+# grupo. Sin ellas el sistema funciona igual, contra el mock, así que es un
+# olvido fácil y silencioso: se avisa acá en lugar de que aparezca en la demo.
+if ! grep -q '^FAV_URL=.\+' .env; then
+  echo
+  echo ">> FALTA conectar el FAV real. Hoy corre contra el mock."
+  echo "   En $DIR/.env, con los datos que entregó FAV:"
+  echo "     FAV_URL=<su URL>"
+  echo "     FAV_API_KEY=<su clave>"
+  echo "     FAV_SECRETO_AVISOS=<el secreto compartido de los avisos>"
+  echo "     FAV_NOTIFICACION_URL=http://$IP:${PUERTO_WEBHOOK_FAV:-8081}/webhooks/fav"
+  echo "   Después: $DOCKER compose -f docker-compose.yml -f docker-compose.nube.yml up -d"
+  echo "   Y pasarle a FAV esa URL del webhook (ver docs/contracts/para-fav.md)."
+  echo "   Acordate de abrir el puerto ${PUERTO_WEBHOOK_FAV:-8081} en el firewall del proveedor."
+fi

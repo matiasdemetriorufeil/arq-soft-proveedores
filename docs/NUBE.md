@@ -15,11 +15,16 @@ Cualquier proveedor sirve. Lo que hace falta:
 | Sistema | Ubuntu 24.04 LTS | el script de instalación usa `apt` vía `get.docker.com` |
 | Tamaño | 2 vCPU y 4 GB de RAM como mínimo | son 14 contenedores; MongoDB, RabbitMQ y Grafana son los que más memoria piden |
 | Disco | 20 GB | imágenes, volúmenes y la caché de build de Go |
-| Puertos de entrada | **22** (SSH) y **80** (HTTP) | nada más: las consolas van por el túnel SSH |
+| Puertos de entrada | **22** (SSH), **80** (HTTP) y **8081** (webhook de FAV) | nada más: las consolas van por el túnel SSH. El 8081 es donde FAV nos avisa de los pedidos, directo a `stock-service` y no por el gateway ([ADR-009](adr/ADR-009-consumo-proveedor.md)); si no se usa el FAV real, no hace falta abrirlo |
 
 Opciones que no cuestan nada durante la cursada: **Oracle Cloud Free Tier** (VM Ampere A1, hasta 4 vCPU y 24 GB sin cargo), **Google Cloud** (USD 300 de crédito inicial, `e2-medium`) o **Azure for Students** (USD 100 sin tarjeta). En AWS una `t3.medium` sale cerca de USD 30 por mes y la capa gratuita (`t3.micro`, 1 GB) no alcanza.
 
-En el firewall o grupo de seguridad del proveedor hay que abrir el puerto 80. En Oracle Cloud además hay que abrirlo en el firewall de la propia VM: `sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT`.
+En el firewall o grupo de seguridad del proveedor hay que abrir el puerto 80, y el 8081 si se conecta el FAV real. En Oracle Cloud además hay que abrirlos en el firewall de la propia VM:
+
+```bash
+sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT -p tcp --dport 8081 -j ACCEPT   # solo con el FAV real
+```
 
 ## 2. Instalar y levantar
 
