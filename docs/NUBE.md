@@ -19,6 +19,10 @@ Cualquier proveedor sirve. Lo que hace falta:
 
 Opciones que no cuestan nada durante la cursada: **Oracle Cloud Free Tier** (VM Ampere A1, hasta 4 vCPU y 24 GB sin cargo), **Google Cloud** (USD 300 de crédito inicial, `e2-medium`) o **Azure for Students** (USD 100 sin tarjeta). En AWS una `t3.medium` sale cerca de USD 30 por mes y la capa gratuita (`t3.micro`, 1 GB) no alcanza.
 
+**Sobre ARM (Ampere A1 de Oracle):** sirve. Se verificó el 10/11 que las ocho imágenes de terceros del compose publican `linux/arm64` —`postgres:16-alpine`, `mongo:9.0`, `redis:7.4-alpine`, `rabbitmq:4.1-management-alpine`, `getmeili/meilisearch:v1.14`, `jaegertracing/all-in-one:1.76.0`, `prom/prometheus:v3.5.0` y `grafana/grafana:12.1.1`— y que nuestros cuatro Dockerfiles no fijan `GOARCH`, así que Go compila para la arquitectura de la VM; `golang:1.26-alpine` y `distroless/static-debian12` también son multi-arquitectura. No hay que cambiar nada para desplegar en ARM.
+
+**El problema real de Oracle no es ARM, es el stock:** las instancias Ampere están casi siempre agotadas y la consola responde *"Out of host capacity"*. Si pasa, hay que reintentar (otra zona de disponibilidad, o más tarde) o caer a otro proveedor. Conviene no dejarlo para la última hora.
+
 En el firewall o grupo de seguridad del proveedor hay que abrir el puerto 80, y el 8081 si se conecta el FAV real. En Oracle Cloud además hay que abrirlos en el firewall de la propia VM:
 
 ```bash
