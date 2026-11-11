@@ -1,0 +1,17 @@
+### Escenario 5: RabbitMQ caído con un cambio de precio pendiente (outbox)
+-- se detiene rabbitmq:
+ Container arq-soft-proveedores-rabbitmq-1  Stopped
+-- se cambia un precio en FAV para generar un evento:
+
+-- sincronización con el broker caído (interesa 'pendientes'):
+"msg":"sincronización del catálogo de FAV terminada","service":"import-service","importacion_id":"b6b94344-ce09-4861-9515-cf791ea7ef87","estado":"con_cambios","altas":0,"modificadas":1,"bajas":0,"descartadas":0,"publicados":0,"pendientes":1
+"msg":"sincronización del catálogo de FAV terminada","service":"import-service","importacion_id":"c6522f4f-df0f-4806-9045-f1a557b47fe1","estado":"sin_cambios","altas":0,"modificadas":0,"bajas":0,"descartadas":0,"publicados":0,"pendientes":1
+-- vuelve rabbitmq:
+ Container arq-soft-proveedores-rabbitmq-1  Started
+-- después de que vuelve (interesa 'publicados'):
+"msg":"sincronización del catálogo de FAV terminada","service":"import-service","importacion_id":"41e0f041-7b28-4182-97af-25359acb8bad","estado":"sin_cambios","altas":0,"modificadas":0,"bajas":0,"descartadas":0,"publicados":0,"pendientes":1
+"msg":"sincronización del catálogo de FAV terminada","service":"import-service","importacion_id":"16eb656c-16a7-4473-8639-382f95f3c422","estado":"sin_cambios","altas":0,"modificadas":0,"bajas":0,"descartadas":0,"publicados":0,"pendientes":0
+"msg":"sincronización del catálogo de FAV terminada","service":"import-service","importacion_id":"84cea6be-6b89-4e64-a693-0ac5283edbdf","estado":"sin_cambios","altas":0,"modificadas":0,"bajas":0,"descartadas":0,"publicados":0,"pendientes":0
+-- el precio nuevo (19999) tiene que estar en el ranking: el evento retenido se consumió
+[{"proveedor_id":11,"proveedor_nombre":"FAV (tienda de ropa)","precio_unitario":19999,"descuento_pct":0,"descuento_aplicado":false,"flete":0,"stock_disponible":10,"costo_total":99995}]
+

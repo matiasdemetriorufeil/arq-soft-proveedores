@@ -1,0 +1,15 @@
+### Escenario 4: FAV caído (el proveedor externo)
+-- se pone el mock de FAV en modo caido:
+{"avisos":[],"modo":"caido","pedidos_de_catalogo":1,"pedidos_de_compra":2,"productos":5}
+
+-- el ranking con un producto de FAV, 5 llamadas (tiene que seguir con la última importación válida):
+  http=200 tiempo=0.007193s
+  http=200 tiempo=0.005406s
+  http=200 tiempo=0.005460s
+  http=200 tiempo=0.005036s
+  http=200 tiempo=0.004799s
+-- cuerpo:
+[{"proveedor_id":11,"proveedor_nombre":"FAV (tienda de ropa)","precio_unitario":15000,"descuento_pct":0,"descuento_aplicado":false,"flete":0,"stock_disponible":10,"costo_total":75000}]
+
+-- búsqueda de productos de FAV:
+  resultados: 3

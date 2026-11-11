@@ -1,0 +1,13 @@
+### Escenario 6: 20 reservas simultáneas sobre el mismo SKU (RN-13, sin sobreventa)
+-- estado antes:
+ BAT-LFP-10KWH disponible=5 reservado=3
+
+-- 20 POST /reservas de 1 unidad, en paralelo, con claves distintas:
+      5 201
+     15 409
+-- estado después (disponible tiene que ser 0 y nunca negativo):
+ BAT-LFP-10KWH disponible=0 reservado=8
+
+-- reservas confirmadas en la base:
+ confirmadas=6
+

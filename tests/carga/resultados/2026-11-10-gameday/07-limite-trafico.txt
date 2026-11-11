@@ -1,0 +1,5 @@
+### Escenario 7: limite de trafico del gateway (token bucket: rafaga 100, 50/s)
+-- 400 llamadas concurrentes con la misma clave (100 hilos):
+   http=200: 178
+   http=429: 222
+-- Retry-After en los rechazados: 1

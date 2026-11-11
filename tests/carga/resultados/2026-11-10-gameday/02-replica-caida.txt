@@ -1,0 +1,9 @@
+### Escenario 2: caída de una réplica de proveedores-service
+-- se detiene la réplica 2:
+ Container arq-soft-proveedores-proveedores-service-2-1  Stopped
+-- 20 llamadas seguidas por el gateway:
+  200=20  errores=0
+-- readyz del gateway:
+  http=200
+-- se restaura la réplica:
+ Container arq-soft-proveedores-proveedores-service-2-1  Started

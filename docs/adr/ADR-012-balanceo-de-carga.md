@@ -54,6 +54,7 @@ Mediciones del 22/10 con el sistema levantado por `docker compose up`:
 - **Distribución:** 23 requests de capacidad repartidas **12 / 11** entre las dos réplicas, contadas en los logs de cada contenedor. El atributo `upstream` de los spans muestra el mismo reparto en Jaeger.
 - **Detección de la caída, sin tráfico:** `docker compose stop proveedores-service-1` → la línea `upstream caído: deja de recibir requests` aparece a los **4,8 s**, consistente con el intervalo de sondeo de 5 s.
 - **Comportamiento durante la caída:** con una réplica detenida, **4 de 4 requests respondieron 200** por la que quedó viva, y el `/readyz` del gateway siguió en 200.
+- **Repetido el 10/11 con más muestras** (Game Day): con `proveedores-service-2` detenido, **20 de 20 requests en `200`**, cero errores, y el `/readyz` del gateway otra vez en 200 ([`POSTMORTEM.md`](../POSTMORTEM.md#escenario-2--una-réplica-caída)).
 - **Recuperación:** al volver a levantarla, vuelve al reparto en **2,7 s**, sin intervención.
 - **Caída total:** con las dos detenidas, `502 NO_DISPONIBLE` en `problem+json` y `/readyz` del gateway en 503, mientras `/healthz` sigue en 200 porque el proceso está sano.
 
