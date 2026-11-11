@@ -91,3 +91,11 @@ type Publicador interface {
 type FuenteCatalogo interface {
 	ListarProductos(ctx context.Context, correlationID string) (fav.Resultado, error)
 }
+
+// FuenteDisponibilidad es el stock real por variante, que FAV agregó en su
+// contrato 1.2.0 (GET /v1/disponibilidad). Es opcional: si la fuente no la
+// implementa, o si FAV la tiene apagada, la importación sigue con el tope fijo
+// de Reglas.StockPorVariante (ADR-009).
+type FuenteDisponibilidad interface {
+	ConsultarDisponibilidad(ctx context.Context, variantes []string, correlationID string) (map[string]int, error)
+}

@@ -114,3 +114,44 @@ func TestCompararSinCambiosEsVacio(t *testing.T) {
 		t.Errorf("contra nada, todo tiene que ser alta: %+v", c)
 	}
 }
+
+// Desde el contrato 1.2.0 de FAV el stock sale de GET /v1/disponibilidad. Sin
+// ese dato vale el tope fijo; con el dato, manda el real, y una variante que
+// FAV no reconoce queda en 0 y no en el tope (ADR-009).
+func TestNormalizarConStockUsaElStockRealYNoElTope(t *testing.T) {
+	r := ReglasFAV(0)
+	n := NormalizarConStock(catalogoDelContrato(), r, map[string]int{
+		"var-remera-basica-blanca-m": 9,
+		"var-remera-basica-negra-l":  0,
+	})
+	if len(n.Items) == 0 {
+		t.Fatal("no salió ninguna oferta")
+	}
+	for sku, it := range n.Items {
+		switch sku {
+		case "FAV-var-remera-basica-blanca-m":
+			if it.StockDisponible != 9 {
+				t.Errorf("%s con stock %d; quiero 9", sku, it.StockDisponible)
+			}
+		default:
+			// Las que no están en el mapa: 0, nunca el tope.
+			if it.StockDisponible == r.StockPorVariante {
+				t.Errorf("%s quedó con el tope fijo %d en lugar de 0: suponer stock de algo que FAV no informó es lo que hace terminar un pedido en 409",
+					sku, it.StockDisponible)
+			}
+			if it.StockDisponible != 0 {
+				t.Errorf("%s con stock %d; quiero 0", sku, it.StockDisponible)
+			}
+		}
+	}
+}
+
+// Sin el mapa, el comportamiento tiene que ser el de antes de la 1.2.0.
+func TestNormalizarSinStockMantieneElTopeFijo(t *testing.T) {
+	r := ReglasFAV(0)
+	for sku, it := range Normalizar(catalogoDelContrato(), r).Items {
+		if it.StockDisponible != r.StockPorVariante {
+			t.Errorf("%s con stock %d; quiero el tope %d", sku, it.StockDisponible, r.StockPorVariante)
+		}
+	}
+}

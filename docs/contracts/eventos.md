@@ -119,8 +119,8 @@ Ejemplo (segunda sincronización: cambió un precio, entró una variante y sali�
       {"sku": "FAV-var-buzo-canguro-verde-s", "nombre": "Buzo canguro · talle S · Verde", "categoria": "ropa-buzos", "unidad": "unidad"}
     ],
     "ofertas": [
-      {"producto_sku": "FAV-var-buzo-canguro-verde-s", "precio_unitario": 38000, "descuento_pct": 0, "cantidad_minima_descuento": 0, "flete": 0, "stock_disponible": 10},
-      {"producto_sku": "FAV-var-jean-mom-celeste-38", "precio_unitario": 39900, "descuento_pct": 0, "cantidad_minima_descuento": 0, "flete": 0, "stock_disponible": 10}
+      {"producto_sku": "FAV-var-buzo-canguro-verde-s", "precio_unitario": 38000, "descuento_pct": 0, "cantidad_minima_descuento": 0, "flete": 0, "stock_disponible": 4},
+      {"producto_sku": "FAV-var-jean-mom-celeste-38", "precio_unitario": 39900, "descuento_pct": 0, "cantidad_minima_descuento": 0, "flete": 0, "stock_disponible": 0}
     ],
     "bajas": ["FAV-var-remera-basica-negra-xl"]
   }
@@ -137,7 +137,7 @@ Ejemplo (segunda sincronización: cambió un precio, entró una variante y sali�
 | `precio_unitario` | `variante.precio`, a centavos | Ya trae la promoción aplicada. |
 | `descuento_pct`, `cantidad_minima_descuento` | 0 | FAV no tiene descuento por volumen. |
 | `flete` | `FAV_FLETE` (0 por defecto) | Su contrato no lo informa. |
-| `stock_disponible` | 10 | Su contrato no informa stock; 10 es lo máximo que se le pide por variante. |
+| `stock_disponible` | el real de `GET /v1/disponibilidad` | Su catálogo no informa stock, pero su contrato 1.2.0 agregó esa consulta y de ahí sale el dato. Una variante que FAV no informa queda en **0** y su oferta no entra al ranking. Si la consulta está apagada o falla, se usa un tope fijo de 10 ([ADR-009](../adr/ADR-009-consumo-proveedor.md)). |
 
 ## Qué tiene que hacer el consumidor (`proveedores-service`)
 

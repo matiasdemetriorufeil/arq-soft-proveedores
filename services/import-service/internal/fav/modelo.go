@@ -27,6 +27,21 @@ type Variante struct {
 	Precio     float64 `json:"precio"`
 }
 
+// Disponibilidad es la respuesta de GET /v1/disponibilidad, que FAV agregó en
+// su contrato 1.2.0. El catálogo no informa stock, así que hasta esa versión
+// las ofertas entraban con un tope fijo por variante.
+type Disponibilidad struct {
+	Items []VarianteDisponible `json:"items"`
+}
+
+// VarianteDisponible son las unidades del stock online de una variante que no
+// están reservadas. Una variante inexistente o sin stock viene con 0, sin
+// error: lo dice su contrato.
+type VarianteDisponible struct {
+	VarianteID string `json:"varianteId"`
+	Disponible int    `json:"disponible"`
+}
+
 // Problema es el error en formato RFC 9457 que devuelve FAV. Se decide
 // siempre por Codigo (lo dice su contrato).
 type Problema struct {

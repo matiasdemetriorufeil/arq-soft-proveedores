@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -123,8 +124,41 @@ func (s *Sincronizador) Sincronizar(ctx context.Context) (Resumen, error) {
 	return resumen, nil
 }
 
+// stockReal pide a FAV la disponibilidad de cada variante del catálogo. Si la
+// fuente no la soporta, si FAV la tiene apagada (404) o si falla, devuelve nil
+// y la importación sigue con el tope fijo: el stock aproximado es peor que el
+// real, pero mucho mejor que no importar nada.
+func (s *Sincronizador) stockReal(ctx context.Context, imp Importacion, cat fav.Catalogo) map[string]int {
+	fuente, ok := s.cfg.Fuente.(FuenteDisponibilidad)
+	if !ok {
+		return nil
+	}
+	variantes := make([]string, 0, 32)
+	for _, p := range cat.Items {
+		for _, v := range p.Variantes {
+			if id := strings.TrimSpace(v.VarianteID); id != "" {
+				variantes = append(variantes, id)
+			}
+		}
+	}
+	if len(variantes) == 0 {
+		return nil
+	}
+	stock, err := fuente.ConsultarDisponibilidad(ctx, variantes, imp.ID)
+	if err != nil {
+		nivel := "no se pudo consultar la disponibilidad de FAV; se usa el tope fijo por variante"
+		if errors.Is(err, fav.ErrDisponibilidadApagada) {
+			nivel = "FAV tiene apagada la consulta de disponibilidad; se usa el tope fijo por variante"
+		}
+		s.cfg.Logger.WarnContext(ctx, nivel, "importacion_id", imp.ID, "error", err.Error(),
+			"tope_por_variante", s.cfg.Reglas.StockPorVariante)
+		return nil
+	}
+	return stock
+}
+
 func (s *Sincronizador) registrarCatalogo(ctx context.Context, imp Importacion, res fav.Resultado) (Resumen, error) {
-	norm := dominio.Normalizar(res.Catalogo, s.cfg.Reglas)
+	norm := dominio.NormalizarConStock(res.Catalogo, s.cfg.Reglas, s.stockReal(ctx, imp, res.Catalogo))
 	imp.Variantes, imp.Descartes = norm.Variantes, norm.Descartes
 	imp.TerminadaEn = s.cfg.Ahora().UTC()
 

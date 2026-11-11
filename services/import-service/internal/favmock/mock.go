@@ -113,6 +113,7 @@ func (m *Mock) UsarSecretoDeAvisos(secreto string) {
 func (m *Mock) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/productos", m.listarProductos)
+	mux.HandleFunc("GET /v1/disponibilidad", m.disponibilidad)
 	mux.HandleFunc("POST /v1/pedidos", m.crearPedido)
 	mux.HandleFunc("GET /v1/pedidos/{pedidoId}", m.consultarPedido)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
@@ -157,6 +158,68 @@ func (m *Mock) listarProductos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !aplicarModo(w, r, modo) {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(cuerpo)
+}
+
+// MaxVariantesDisponibilidad es el tope de ids por consulta que fija el
+// contrato de FAV (de 1 a 200). Pasarse es 400 PEDIDO_INVALIDO.
+const MaxVariantesDisponibilidad = 200
+
+// disponibilidad implementa GET /v1/disponibilidad del contrato 1.2.0: las
+// unidades por variante, sin apartar nada. Una variante que no existe se
+// informa con 0 y no con un error, como dice su contrato.
+func (m *Mock) disponibilidad(w http.ResponseWriter, r *http.Request) {
+	corr := r.Header.Get("X-Correlation-Id")
+	if corr == "" {
+		corr = fmt.Sprintf("mock-%d", time.Now().UnixNano())
+	}
+	w.Header().Set("X-Correlation-Id", corr)
+
+	if r.Header.Get("X-API-Key") == "" || r.Header.Get("X-API-Key") != m.clave {
+		problema(w, http.StatusUnauthorized, "no-autenticado", "No autenticado", "NO_AUTENTICADO")
+		return
+	}
+
+	crudo := strings.TrimSpace(r.URL.Query().Get("variantes"))
+	var ids []string
+	for _, p := range strings.Split(crudo, ",") {
+		if id := strings.TrimSpace(p); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 || len(ids) > MaxVariantesDisponibilidad {
+		problema(w, http.StatusBadRequest, "pedido-invalido", "Pedido inválido", "PEDIDO_INVALIDO")
+		return
+	}
+
+	m.mu.Lock()
+	modo := m.modo
+	type item struct {
+		VarianteID string `json:"varianteId"`
+		Disponible int    `json:"disponible"`
+	}
+	items := make([]item, 0, len(ids))
+	for _, id := range ids {
+		items = append(items, item{VarianteID: id, Disponible: m.stock[id]})
+	}
+	m.mu.Unlock()
+
+	if modo == ModoInvalido {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"disponibles":"esto no es el contrato"}`))
+		return
+	}
+	if !aplicarModo(w, r, modo) {
+		return
+	}
+	cuerpo, err := json.Marshal(struct {
+		Items []item `json:"items"`
+	}{items})
+	if err != nil {
+		problema(w, http.StatusInternalServerError, "error-interno", "Error interno", "ERROR_INTERNO")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
