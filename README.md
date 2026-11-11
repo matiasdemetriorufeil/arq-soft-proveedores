@@ -51,7 +51,7 @@ Entrega 3 cerrada (10/11/2026). Lo que existe y lo que falta, sin mezclarlos:
 | Logs JSON correlacionados y traza distribuida (gateway → servicio → SQL) en Jaeger | ✅ implementado |
 | Contrato de la capacidad (OpenAPI v1) y documentación para el consumidor | ✅ implementado |
 | Test de carga de la capacidad con k6 y su análisis ([ADR-013](docs/adr/ADR-013-capacidad-y-costos.md)) | ✅ implementado |
-| `import-service`: importa el catálogo de FAV, MongoDB, publica `ListaPreciosActualizada` en RabbitMQ, circuit breaker y test de contrato | ✅ implementado (contra el mock de FAV) |
+| `import-service`: importa el catálogo de FAV, MongoDB, publica `ListaPreciosActualizada` en RabbitMQ, circuit breaker y test de contrato | ✅ implementado **contra el FAV real desplegado** (su contrato 1.2.0, desde el 11/11); el mock queda para desarrollo y para el Game Day |
 | RabbitMQ con cola de fallidos (DLQ), MongoDB, Redis y Meilisearch en el compose | ✅ levantan con `docker compose up` |
 | Consumo del evento en `proveedores-service` (idempotente, con DLQ), caché Redis y búsqueda en Meilisearch | ✅ implementado y medido ([ADR-006](docs/adr/ADR-006-busqueda.md), [ADR-007](docs/adr/ADR-007-cache.md)) |
 | `stock-service`: reserva sin sobreventa, reposición automática, pedidos a FAV con `Idempotency-Key` y webhook HMAC | ✅ implementado ([ADR-004](docs/adr/ADR-004-consistencia-y-concurrencia.md), [ADR-009](docs/adr/ADR-009-consumo-proveedor.md)) |

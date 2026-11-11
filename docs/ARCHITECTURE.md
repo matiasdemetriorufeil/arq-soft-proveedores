@@ -21,7 +21,7 @@ administra, cómo se comunican y cómo se despliegan.
 |---|---|
 | **Dominio** | Comparar proveedores por costo final (precio, descuento por volumen, flete y stock) y recomendar a quién comprar. |
 | **Capacidad que publicamos** | `GET /api/v1/proveedores/recomendados`, consumida por el grupo de paneles solares. Contrato en [`docs/contracts/`](contracts/README.md). |
-| **Capacidad que consumimos** | Catálogo y pedidos de FAV (grupo de ropa), que entra como un proveedor más. *El catálogo ya se importa y los pedidos de reposición ya salen, los dos contra un mock que cumple su contrato.* |
+| **Capacidad que consumimos** | Catálogo y pedidos de FAV (grupo de ropa), que entra como un proveedor más. *El catálogo se importa **del FAV real desplegado** desde el 11/11, con el stock que informa su `GET /v1/disponibilidad`. Los pedidos están implementados, pero su contrato 1.2.0 quitó la consulta de estado y el webhook, así que una orden enviada no se cierra sola ([ADR-009](adr/ADR-009-consumo-proveedor.md)).* |
 | **Lenguaje** | Go, solo biblioteca estándar más pocas dependencias (`pgx`, OpenTelemetry, el driver de MongoDB y el cliente de RabbitMQ). |
 | **Despliegue** | Docker Compose, un solo comando. En la nube: **<http://20.226.84.78/>** ([`NUBE.md`](NUBE.md)). |
 
@@ -46,7 +46,7 @@ flowchart LR
 
     paneles -- "GET /api/v1/proveedores/recomendados<br/>HTTPS/JSON + X-API-Key" --> sistema
     usuario -- "navegador · frontend del gateway" --> sistema
-    sistema -- "GET /v1/productos cada 5 min<br/>(contra el mock hasta tener su URL)" --> ropa
+    sistema -- "GET /v1/productos y /v1/disponibilidad<br/>cada 5 min, contra su URL real" --> ropa
     sistema -- "POST /v1/pedidos · webhook firmado" --> ropa
 
 ```
@@ -68,7 +68,7 @@ Qué se despliega y cómo se conecta.
 flowchart TB
     paneles(["Grupo de paneles solares"])
     usuario(["Usuario (navegador)"])
-    ropa(["FAV (grupo de ropa)<br/>o fav-mock en local"])
+    ropa(["FAV (grupo de ropa)<br/>real en la nube; fav-mock en local"])
 
     subgraph sistema["Comparador de proveedores — red interna de Docker"]
         direction TB
@@ -138,7 +138,7 @@ Los criterios de corte están en [ADR-001](adr/ADR-001-limites-de-los-servicios.
 | `proveedores-service` | implementado | Calcula el costo total de cada oferta, descarta las que no tienen stock suficiente y devuelve las más baratas. Publica la capacidad compartida. | PostgreSQL | Hexagonal ([ADR-002](adr/ADR-002-arquitectura-interna.md)) |
 | `stock-service` | implementado | Stock propio, reserva sin sobreventa, punto de reorden, órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`), pedidos a FAV y su webhook. Publicado por el gateway en `/api/v1/stock/` (el webhook no). | PostgreSQL (base `stock`, con su propio usuario) | En capas: `handler → service → repository` ([ADR-002](adr/ADR-002-arquitectura-interna.md)) |
 | `import-service` | implementado | Baja el catálogo de FAV cada 5 min, lo traduce a ofertas (capa anticorrupción), lo compara con lo último avisado y publica `ListaPreciosActualizada`. Sin tráfico de afuera: solo `/healthz`, `/readyz`, `/estado` y `POST /sincronizar` en la red interna. | MongoDB | Puertos y adaptadores livianos: `dominio` y `sincronizacion` no conocen MongoDB, RabbitMQ ni HTTP |
-| `fav-mock` | implementado (solo local) | Hace de FAV mientras no tengamos su URL: cumple su contrato v1.1.0 (catálogo, pedidos con estado y webhook firmado) y simula fallas para el Game Day. No es parte del sistema. | — | — |
+| `fav-mock` | implementado (solo local) | Hacía de FAV mientras no tuviéramos su URL. Desde el 11/11 el catálogo sale del FAV real y el mock queda para desarrollo sin internet, para los tests de contrato y para **simular fallas en el Game Day**, que contra el FAV real no se puede. No es parte del sistema. | — | — |
 
 El código de cada servicio está en `services/<nombre>/`. Hay dos paquetes
 compartidos: `pkg/observabilidad` (logger JSON con `trace_id` e inicialización
@@ -174,9 +174,9 @@ puede comprarle; no es el stock propio, que es de `stock-service`.
 | `stock-service` → `proveedores-service` | síncrona | HTTP, directo a una réplica | implementado | Timeout de 1 s y 2 reintentos ([ADR-005](adr/ADR-005-comunicacion.md)) |
 | `import-service` → RabbitMQ → `proveedores-service` | asíncrona (evento `ListaPreciosActualizada`) | AMQP 0-9-1 | implementado de punta a punta | Outbox en MongoDB, *publisher confirms*, DLQ tras 3 entregas ([`eventos.md`](contracts/eventos.md)) |
 | `import-service` → MongoDB | síncrona | MongoDB wire | implementado | Timeout de 3 s por operación |
-| `import-service` → FAV (grupo de ropa), catálogo | síncrona | HTTP, cada 5 min | implementado (contra `fav-mock`) | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, 3 reintentos, circuit breaker, última importación válida hasta 24 h |
-| `stock-service` → FAV, pedidos | síncrona | HTTP con `Idempotency-Key` | implementado (contra `fav-mock`) | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, 3 reintentos con la misma clave, consulta de respaldo cada 15 min |
-| FAV → `stock-service` (directo, sin gateway) | asíncrona (webhook) | HTTP firmado con HMAC | implementado (contra `fav-mock`) | Aviso de cambio de estado del pedido: firma, deduplicación por `eventoId` y confirmación con `GET` ([ADR-009](adr/ADR-009-consumo-proveedor.md)) |
+| `import-service` → FAV (grupo de ropa), catálogo y disponibilidad | síncrona | HTTPS, cada 5 min | implementado **contra el FAV real** (11/11) | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, 3 reintentos, circuit breaker, última importación válida hasta 24 h |
+| `stock-service` → FAV, pedidos | síncrona | HTTP con `Idempotency-Key` | implementado, probado contra `fav-mock` | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, 3 reintentos con la misma clave, consulta de respaldo cada 15 min |
+| FAV → `stock-service` (directo, sin gateway) | asíncrona (webhook) | HTTP firmado con HMAC | implementado, pero **sin uso**: la 1.2.0 de FAV no tiene webhook | Aviso de cambio de estado del pedido: firma, deduplicación por `eventoId` y confirmación con `GET` ([ADR-009](adr/ADR-009-consumo-proveedor.md)) |
 
 ## 7. Flujo principal
 
