@@ -1,6 +1,6 @@
 # ADR-001 — Límites de los servicios (D1)
 
-- **Estado:** aceptado para `api-gateway`, `proveedores-service` e `import-service` (implementados y verificados); **propuesto** para `stock-service`. La parte de `catalog-service` y de la tabla `productos` está **reemplazada por [ADR-014](ADR-014-tres-servicios-sin-catalogo.md)** (propuesto).
+- **Estado:** aceptado para `api-gateway`, `proveedores-service`, `import-service` y `stock-service`: los cuatro están implementados y verificados (`stock-service` el 06/11, con tests contra PostgreSQL real y contra el mock de FAV). La parte de `catalog-service` y de la tabla `productos` está **reemplazada por [ADR-014](ADR-014-tres-servicios-sin-catalogo.md)** (propuesto).
 - **Fecha:** 2026-10-23 · actualizado 2026-11-03
 - **Entrega:** 1 (no se presentó en su fecha), validación en la 2 (23/10) y actualización en la 3 (06/11)
 - **Decisión de la consigna:** D1. Criterios usados para separar responsabilidades, relaciones entre servicios y propiedad de los datos.
@@ -28,7 +28,7 @@ A la fecha de este ADR solo existen en el código el gateway y `proveedores-serv
 |---|---|---|---|
 | `api-gateway` | implementado | Entrada única: API key, `X-Request-ID`, trazas y reparto entre réplicas. **Sin base de datos ni lógica de dominio.** | ninguno |
 | `proveedores-service` | implementado | Ranking de ofertas de proveedores por costo total. Publica la capacidad que consume el grupo de paneles solares. | `proveedores`, `productos`, `ofertas` (PostgreSQL) |
-| `stock-service` | propuesto | Stock propio, reserva sin sobreventa, punto de reorden y órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`, más `VENCIDA` y `EN_REVISION` según [ADR-009](ADR-009-consumo-proveedor.md)), incluidos los pedidos al grupo de ropa. | existencias y órdenes |
+| `stock-service` | implementado (06/11) | Stock propio, reserva sin sobreventa, punto de reorden y órdenes de reposición (`BORRADOR → SOLICITADA → CONFIRMADA`, más `VENCIDA` y `EN_REVISION` según [ADR-009](ADR-009-consumo-proveedor.md)), incluidos los pedidos al grupo de ropa. | existencias y órdenes |
 | `import-service` | implementado (03/11) | Ingesta y normalización de las listas de precios de cada proveedor, incluido el catálogo de ropa que consumimos. Publica `ListaPreciosActualizada`. | importaciones, respuesta cruda y catálogo traducido vigente (MongoDB) |
 | ~~`catalog-service`~~ | reemplazado por [ADR-014](ADR-014-tres-servicios-sin-catalogo.md) | ~~Catálogo maestro: mapea los códigos de cada proveedor a un mismo producto.~~ El mapeo queda en la capa anticorrupción de `import-service`. | — |
 
@@ -50,7 +50,7 @@ A la fecha de este ADR solo existen en el código el gateway y `proveedores-serv
 
 ## Consecuencias aceptadas
 
-- **Hoy hay un solo servicio de dominio.** La consigna pide tres para la presentación grupal (11 o 13/11); los otros dos (`stock-service` y uno entre `import-service` y `catalog-service`) todavía no están. Es el riesgo principal de este ADR.
+- **Hay tres servicios de dominio**, los tres que pide la consigna para la presentación grupal: `proveedores-service`, `import-service` y `stock-service`. Era el riesgo principal de este ADR y quedó cerrado el 06/11; `catalog-service` no se construyó ([ADR-014](ADR-014-tres-servicios-sin-catalogo.md)).
 - **`productos` tiene una ubicación provisoria**, descrita arriba, y habrá que migrarla.
 - **Más servicios, más operación:** más contenedores, más trazas que seguir y más contratos internos que mantener.
 - **Los datos derivados se actualizan con retraso.** Si `proveedores-service` guarda una copia de algo que es de otro, hay una ventana de inconsistencia; el retraso aceptable lo define D5/D6.

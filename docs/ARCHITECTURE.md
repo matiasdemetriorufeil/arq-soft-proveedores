@@ -307,23 +307,22 @@ grupal pide actualizar.
 - **Tres servicios de dominio, sin `catalog-service`.** `proveedores-service`,
   `import-service` y `stock-service` están implementados; `catalog-service` sale
   del alcance ([ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md), a validar).
-- **Frontend mínimo.** Login → elegir SKU → ranking → stock propio → reservar.
-  Sin búsqueda por texto hasta que esté Meilisearch: el producto se elige de una
-  lista con los SKUs del seed.
-- **El evento se publica pero nadie lo consume.** `import-service` publica
-  `ListaPreciosActualizada` con outbox y confirmaciones, y la DLQ está armada;
-  falta el consumidor idempotente en `proveedores-service`, así que las ofertas de
-  FAV todavía no llegan al ranking.
-- **Redis y Meilisearch están en el compose pero sin uso.** Hoy cada consulta va a
-  PostgreSQL.
+- **Frontend mínimo.** Login → buscar por texto → ranking → stock propio →
+  reservar. Alcanza para mostrar el flujo completo; no tiene manejo de sesión más
+  allá del JWT en memoria, ni vistas de administración (órdenes de reposición,
+  estado de la importación), que se operan por API.
 - **La integración con FAV es contra nuestro mock.** El catálogo se consume con
   test de contrato contra su OpenAPI v1.1.0, igual que los pedidos y el webhook
   ([ADR-009](adr/ADR-009-consumo-proveedor.md)), pero FAV todavía no publicó su
   URL. Con el FAV real, el webhook necesita una URL pública que llegue a
   `stock-service` sin pasar por el gateway. Los pedidos no tienen circuit breaker
   (el catálogo sí).
-- **Los tests de integración de MongoDB no se corrieron todavía.** Están escritos
-  y compilan; los de RabbitMQ sí se corrieron contra un broker real.
+- **La caché no tiene circuit breaker.** Con Redis caído cada lectura paga los
+  50 ms completos del timeout del decorador antes de ir a PostgreSQL: medido en el
+  Game Day, la latencia pasa de 6,5 ms a 56,6 ms sin dejar de responder correcto
+  ([`POSTMORTEM.md`](POSTMORTEM.md#escenario-1--redis-caído)). La pieza ya existe
+  en `import-service/internal/resiliencia`, pero vive en el `internal` de otro
+  módulo y hoy no se puede reutilizar.
 - **La nube está preparada pero no creada.** El override, el script de
   instalación y la guía están ([`NUBE.md`](NUBE.md)); falta crear la VM y
   publicar la URL. Sin HTTPS (necesita dominio).
@@ -342,13 +341,19 @@ grupal pide actualizar.
   tendría una tabla de usuarios con hashes (bcrypt/argon2) o un proveedor de
   identidad. El JWT no se puede revocar antes de que venza (1 h).
 - **El gateway es el cuello de botella y puede colapsar bajo sobrecarga.** Es el
-  componente que más CPU gasta (40 % del total por request) y usa el transporte HTTP
-  por defecto de Go, que reutiliza solo 2 conexiones por réplica; con el transporte
-  ajustado, su CPU bajó un 31 % en el experimento. La capacidad declarada es de
+  componente que más CPU gasta (40 % del total por request). El transporte con pool
+  propio ya está aplicado —bajó su CPU un 31 % respecto del transporte por defecto
+  de Go, que reutilizaba solo 2 conexiones por réplica—. La capacidad declarada es de
   1 200 req/s; desde ~1 600 req/s el resultado varía entre corridas, y una rampa
   colapsó en ese escalón con `504` ([ADR-013](adr/ADR-013-capacidad-y-costos.md)).
 - **PostgreSQL es un punto único de falla.** El balanceo cubre al servicio, no a
-  la base.
+  la base. Con la base caída el sistema responde `503 NO_DISPONIBLE` a los 2 s, sin
+  colgarse, contra un timeout de 3 s en el gateway: el margen es de 1 segundo
+  ([ADR-010](adr/ADR-010-resiliencia.md)).
+- **El `/readyz` del gateway sigue en `200` con PostgreSQL caído.** Es coherente
+  —el gateway no tiene base y su trabajo es rutear— pero significa que un
+  orquestador no lo sacaría de rotación aunque no pueda servir nada útil. Hoy lo
+  cubre la alerta por tasa de errores. Verificado en el Game Day.
 - **Jaeger guarda las trazas en memoria, sin tope, y se exporta el 100 %**, sin
   muestreo: alcanza para la demo, no para carga real. Llegó a 1,6 GB en una rampa
   de 4 minutos del test de carga ([ADR-013](adr/ADR-013-capacidad-y-costos.md)).
@@ -361,15 +366,16 @@ grupal pide actualizar.
 
 **Modelo y datos**
 
-- **`productos` está provisoriamente en `proveedores-service`**, pero su dueño
-  natural será `catalog-service` ([ADR-001](adr/ADR-001-limites-de-los-servicios.md)).
+- **`productos` vive en `proveedores-service`** aunque lo alimenta la importación.
+  Con `catalog-service` fuera de alcance ([ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md))
+  ya no hay un dueño "natural" esperando: queda como está y se asume la tensión.
 - **Importes en `float64`** con redondeo final a 2 decimales, y sin moneda en el
   contrato.
 - **El ranking filtra y ordena en memoria** las ofertas del SKU: aceptable con
   decenas, no con miles ([ADR-002](adr/ADR-002-arquitectura-interna.md)).
-- **No hay escrituras en el flujo actual:** los precios y el stock del proveedor
-  solo cambian por el seed.
-- **La decisión de consistencia y concurrencia (D4) no está escrita todavía.**
+- **Las ofertas de los proveedores propios solo cambian por el seed.** Las de FAV
+  sí se actualizan solas, por el evento de la importación; no hay un alta ni una
+  edición de ofertas por API para los demás proveedores.
 
 ## 12. Cómo se mantiene este documento
 

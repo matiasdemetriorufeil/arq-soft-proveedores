@@ -42,7 +42,7 @@ consumidor ──► api-gateway ──► proveedores-service (2 réplicas) ─
 
 ## Estado del proyecto
 
-Entrega 3 en curso (06/11/2026). Lo que existe y lo que falta, sin mezclarlos:
+Entrega 3 cerrada (10/11/2026). Lo que existe y lo que falta, sin mezclarlos:
 
 | Componente | Estado |
 |---|---|
@@ -53,12 +53,15 @@ Entrega 3 en curso (06/11/2026). Lo que existe y lo que falta, sin mezclarlos:
 | Test de carga de la capacidad con k6 y su análisis ([ADR-013](docs/adr/ADR-013-capacidad-y-costos.md)) | ✅ implementado |
 | `import-service`: importa el catálogo de FAV, MongoDB, publica `ListaPreciosActualizada` en RabbitMQ, circuit breaker y test de contrato | ✅ implementado (contra el mock de FAV) |
 | RabbitMQ con cola de fallidos (DLQ), MongoDB, Redis y Meilisearch en el compose | ✅ levantan con `docker compose up` |
-| Consumo del evento en `proveedores-service`, caché y búsqueda | 📝 diseñado, sin código (Integrante 2) |
-| `stock-service` (reserva, reposición, pedidos a FAV) | 📝 diseñado, sin código (Integrante 3); su base ya existe |
+| Consumo del evento en `proveedores-service` (idempotente, con DLQ), caché Redis y búsqueda en Meilisearch | ✅ implementado y medido ([ADR-006](docs/adr/ADR-006-busqueda.md), [ADR-007](docs/adr/ADR-007-cache.md)) |
+| `stock-service`: reserva sin sobreventa, reposición automática, pedidos a FAV con `Idempotency-Key` y webhook HMAC | ✅ implementado ([ADR-004](docs/adr/ADR-004-consistencia-y-concurrencia.md), [ADR-009](docs/adr/ADR-009-consumo-proveedor.md)) |
 | `catalog-service` | ✖ fuera de alcance ([ADR-014](docs/adr/ADR-014-tres-servicios-sin-catalogo.md), a validar) |
-| Frontend web | 📝 pendiente |
-| Métricas, tablero y alertas | 📝 pendiente |
-| Despliegue en la nube (URL pública) | 📝 pendiente |
+| Login JWT y límite de tráfico (`429`) en el gateway | ✅ implementado (contrato 1.1.0) |
+| Frontend web (login → buscar → ranking → reservar), embebido en el gateway | ✅ implementado |
+| Métricas Prometheus, tablero Grafana y tres alertas | ✅ implementado ([ADR-011](docs/adr/ADR-011-observabilidad.md)) |
+| Pipeline de CI (GitHub Actions) con unitarios, integración e imágenes | ✅ implementado |
+| Game Day y informe de caídas | ✅ ejecutado ([`docs/POSTMORTEM.md`](docs/POSTMORTEM.md)) |
+| Despliegue en la nube (URL pública) | 📝 pendiente: el override, el script y la guía están ([`docs/NUBE.md`](docs/NUBE.md)); falta crear la VM |
 
 El detalle y las limitaciones conocidas están en
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#11-limitaciones-conocidas-y-deuda-técnica).
