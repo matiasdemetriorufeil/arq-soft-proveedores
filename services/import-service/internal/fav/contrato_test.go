@@ -31,7 +31,14 @@ import (
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/import-service/internal/favmock"
 )
 
-const rutaContrato = "../../../../docs/contracts/consumidos/fav-catalogo-pedidos-v1.1.0.openapi.yaml"
+// rutaContrato es la versión VIGENTE de FAV.
+const rutaContrato = "../../../../docs/contracts/consumidos/fav-catalogo-pedidos-v1.3.0.openapi.yaml"
+
+// rutaContratoConWebhook es la última versión que especificó el webhook, que
+// FAV quitó en la 1.2.0 y no devolvió en la 1.3.0. El mock lo sigue enviando y
+// nuestro receptor lo sigue verificando, así que esa parte se valida contra
+// esta copia (ver ADR-009).
+const rutaContratoConWebhook = "../../../../docs/contracts/consumidos/fav-catalogo-pedidos-v1.1.0.openapi.yaml"
 
 func init() {
 	// Los errores de FAV vienen como application/problem+json.
@@ -45,8 +52,13 @@ func init() {
 
 func cargarContrato(t *testing.T) *openapi3.T {
 	t.Helper()
+	return cargarContratoDe(t, rutaContrato)
+}
+
+func cargarContratoDe(t *testing.T, ruta string) *openapi3.T {
+	t.Helper()
 	loader := openapi3.NewLoader()
-	doc, err := loader.LoadFromFile(rutaContrato)
+	doc, err := loader.LoadFromFile(ruta)
 	if err != nil {
 		t.Fatalf("no se pudo leer el contrato de FAV: %v", err)
 	}

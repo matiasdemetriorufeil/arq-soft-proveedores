@@ -204,8 +204,10 @@ func verificar(secreto, header string, cuerpo []byte) bool {
 	return hmac.Equal([]byte(hex.EncodeToString(mac.Sum(nil))), []byte(v1))
 }
 
+// El webhook no está en el contrato vigente: se valida contra la 1.1.0, la
+// última que lo especificó (ver la nota de rutaContratoConWebhook).
 func TestContratoWebhookDelMock(t *testing.T) {
-	doc := cargarContrato(t)
+	doc := cargarContratoDe(t, rutaContratoConWebhook)
 	type recibido struct {
 		header http.Header
 		cuerpo []byte
@@ -277,8 +279,10 @@ func TestContratoWebhookDelMock(t *testing.T) {
 	}
 }
 
+// El webhook no está en el contrato vigente: se valida contra la 1.1.0, la
+// última que lo especificó (ver la nota de rutaContratoConWebhook).
 func TestContratoVectorDeFirmaDelContrato(t *testing.T) {
-	doc := cargarContrato(t)
+	doc := cargarContratoDe(t, rutaContratoConWebhook)
 	ej := doc.Components.Examples["EventoPagado"].Value.Value
 	// Serializado en una línea, sin espacios y en el orden del contrato (como
 	// se envía): el orden de las claves cambia la firma.

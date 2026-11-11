@@ -55,7 +55,7 @@ Entrega 3 cerrada (10/11/2026). Lo que existe y lo que falta, sin mezclarlos:
 | RabbitMQ con cola de fallidos (DLQ), MongoDB, Redis y Meilisearch en el compose | ✅ levantan con `docker compose up` |
 | Consumo del evento en `proveedores-service` (idempotente, con DLQ), caché Redis y búsqueda en Meilisearch | ✅ implementado y medido ([ADR-006](docs/adr/ADR-006-busqueda.md), [ADR-007](docs/adr/ADR-007-cache.md)) |
 | `stock-service`: reserva sin sobreventa, reposición automática y pedidos a FAV con `Idempotency-Key` | ✅ implementado ([ADR-004](docs/adr/ADR-004-consistencia-y-concurrencia.md), [ADR-009](docs/adr/ADR-009-consumo-proveedor.md)) |
-| Cierre automático de un pedido a FAV (webhook HMAC y consulta de estado) | ⚠️ implementado y probado, **pero sin uso**: el contrato 1.2.0 de FAV quitó las dos operaciones, así que la orden se cierra a mano ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)) |
+| Cierre automático de un pedido a FAV | ✅ por **consulta de estado** cada 15 min: su contrato 1.3.0 la repuso el 11/11. El **webhook** sigue sin existir de su lado, así que nuestro receptor queda sin uso ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)) |
 | `catalog-service` | ✖ fuera de alcance ([ADR-014](docs/adr/ADR-014-tres-servicios-sin-catalogo.md), a validar) |
 | Login JWT y límite de tráfico (`429`) en el gateway | ✅ implementado (contrato 1.1.0) |
 | Frontend web (login → buscar → ranking → reservar), embebido en el gateway | ✅ implementado |

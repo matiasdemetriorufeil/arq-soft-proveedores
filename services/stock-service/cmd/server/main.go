@@ -58,12 +58,11 @@ type config struct {
 
 	// Pedidos a FAV (ADR-009). Sin favURL los pedidos quedan apagados: las
 	// órdenes de prendas de FAV se crean igual y esperan en BORRADOR.
-	favURL             string
-	favAPIKey          string
-	favSecretoAvisos   string
-	favNotificacionURL string
-	favProveedorID     int64
-	intervaloPedidos   time.Duration
+	favURL           string
+	favAPIKey        string
+	favSecretoAvisos string
+	favProveedorID   int64
+	intervaloPedidos time.Duration
 }
 
 const (
@@ -110,12 +109,8 @@ func cargarConfig() (config, error) {
 	c.favURL = strings.TrimSpace(os.Getenv("FAV_URL"))
 	c.favAPIKey = strings.TrimSpace(os.Getenv("FAV_API_KEY"))
 	c.favSecretoAvisos = strings.TrimSpace(os.Getenv("FAV_SECRETO_AVISOS"))
-	c.favNotificacionURL = strings.TrimSpace(os.Getenv("FAV_NOTIFICACION_URL"))
 	if c.favURL != "" && c.favAPIKey == "" {
 		return c, errors.New("FAV_API_KEY es obligatoria si se configura FAV_URL")
-	}
-	if c.favNotificacionURL != "" && c.favSecretoAvisos == "" {
-		return c, errors.New("FAV_SECRETO_AVISOS es obligatorio si se configura FAV_NOTIFICACION_URL: sin él no se pueden verificar los avisos")
 	}
 	c.favProveedorID = favProveedorIDPorDefecto
 	if v := strings.TrimSpace(os.Getenv("FAV_PROVEEDOR_ID")); v != "" {
@@ -219,17 +214,16 @@ func run(log *slog.Logger) error {
 	}
 	svcOrdenes := service.NuevoServicioOrdenes(repo, cliente)
 
-	// Pedidos a FAV: el cliente sale directo a FAV, nunca por el gateway, y
-	// FAV nos avisa directo a /webhooks/fav (ADR-009).
+	// Pedidos a FAV: el cliente sale directo a FAV, nunca por el gateway
+	// (ADR-009). FAV no tiene webhook desde su 1.2.0, así que el estado se
+	// sigue con la consulta periódica.
 	var svcPedidos *service.ServicioPedidos
 	if cfg.favURL != "" {
 		svcOrdenes.UsarProveedorFAV(cfg.favProveedorID, "FAV (tienda de ropa)")
 		svcPedidos = service.NuevoServicioPedidos(repo,
-			fav.NuevoCliente(cfg.favURL, cfg.favAPIKey, otelhttp.NewTransport(http.DefaultTransport)),
-			cfg.favNotificacionURL)
-		if cfg.favNotificacionURL == "" {
-			log.Warn("pedidos a FAV sin webhook: falta FAV_NOTIFICACION_URL; el estado se sigue solo con la consulta de respaldo")
-		}
+			fav.NuevoCliente(cfg.favURL, cfg.favAPIKey, otelhttp.NewTransport(http.DefaultTransport)))
+		log.Info("pedidos a FAV activos; el estado se sigue con GET /v1/pedidos/{pedidoId} cada vuelta",
+			"intervalo", cfg.intervaloPedidos.String())
 		go correrCicloDePedidos(ctx, log, svcPedidos, cfg.intervaloPedidos)
 	} else {
 		log.Warn("pedidos a FAV apagados: falta FAV_URL; las órdenes de prendas de FAV esperan en BORRADOR")

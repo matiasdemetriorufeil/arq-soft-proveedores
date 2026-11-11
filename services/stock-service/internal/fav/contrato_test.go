@@ -1,10 +1,14 @@
 package fav_test
 
-// Test de contrato de lo que stock-service consume de FAV: los pedidos y el
-// webhook, contra la copia exacta del OpenAPI v1.1.0 que está en
-// docs/contracts/consumidos/. Valida que nuestras requests cumplen el
-// contrato, que nuestro cliente entiende sus ejemplos y sus errores, y que
-// nuestro receptor acepta el vector de firma que publica FAV.
+// Test de contrato de lo que stock-service consume de FAV, contra las copias
+// exactas de su OpenAPI en docs/contracts/consumidos/.
+//
+// Los pedidos y la consulta de estado se validan contra la **1.3.0**, que es la
+// vigente. El webhook se valida contra la **1.1.0**, que es la última versión
+// que lo especificó: FAV lo quitó en la 1.2.0 y no lo devolvió en la 1.3.0, así
+// que nuestro receptor existe pero no tiene quien lo llame. Se conserva esa
+// verificación porque el código sigue en el servicio y porque, si FAV alguna vez
+// lo publica, este test dice exactamente contra qué lo probamos.
 //
 // Las respuestas del mock de FAV contra el mismo contrato se validan en
 // services/import-service/internal/fav/contrato_pedidos_test.go.
@@ -16,6 +20,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -28,16 +33,25 @@ import (
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/stock-service/internal/fav"
 )
 
-const rutaContrato = "../../../../docs/contracts/consumidos/fav-catalogo-pedidos-v1.1.0.openapi.yaml"
+// rutaContrato es la versión VIGENTE de FAV: pedidos y consulta de estado.
+const rutaContrato = "../../../../docs/contracts/consumidos/fav-catalogo-pedidos-v1.3.0.openapi.yaml"
+
+// rutaContratoConWebhook es la última versión que especificó el webhook.
+const rutaContratoConWebhook = "../../../../docs/contracts/consumidos/fav-catalogo-pedidos-v1.1.0.openapi.yaml"
 
 func cargarContrato(t *testing.T) *openapi3.T {
 	t.Helper()
-	doc, err := openapi3.NewLoader().LoadFromFile(rutaContrato)
+	return cargarContratoDe(t, rutaContrato)
+}
+
+func cargarContratoDe(t *testing.T, ruta string) *openapi3.T {
+	t.Helper()
+	doc, err := openapi3.NewLoader().LoadFromFile(ruta)
 	if err != nil {
-		t.Fatalf("no se pudo leer el contrato de FAV: %v", err)
+		t.Fatalf("no se pudo leer %s: %v", ruta, err)
 	}
 	if err := doc.Validate(context.Background()); err != nil {
-		t.Fatalf("el contrato de FAV no es un OpenAPI válido: %v", err)
+		t.Fatalf("%s no es un OpenAPI válido: %v", ruta, err)
 	}
 	return doc
 }
@@ -98,7 +112,6 @@ func TestContratoNuestroPedidoCumpleElContrato(t *testing.T) {
 	p, err := fav.NuevoCliente(srv.URL, "clave-grupo", nil).CrearPedido(context.Background(), "3f2a9c1e-5b7d-4e8a-9c21-7d4e5f6a8b90-1",
 		fav.PedidoNuevo{
 			ReferenciaExterna: "3f2a9c1e-5b7d-4e8a-9c21-7d4e5f6a8b90",
-			NotificacionURL:   "http://stock-service:8080/webhooks/fav",
 			Items:             []fav.ItemPedido{{VarianteID: "var-remera-basica-blanca-m", Cantidad: fav.MaxUnidadesPorVariante}},
 		})
 	if err != nil {
@@ -174,8 +187,10 @@ func TestContratoErroresDelContrato(t *testing.T) {
 	}
 }
 
+// El webhook no está en el contrato vigente: este test usa la 1.1.0, que fue la
+// última que lo especificó. Ver la nota de arriba.
 func TestContratoElAvisoDeEjemploVerificaYSeLee(t *testing.T) {
-	doc := cargarContrato(t)
+	doc := cargarContratoDe(t, rutaContratoConWebhook)
 	cb := (*doc.Paths.Find("/v1/pedidos").Post.Callbacks["pedidoActualizado"].Value.Value("{$request.body#/notificacionUrl}")).Post
 	var headerEjemplo string
 	for _, p := range cb.Parameters {
@@ -199,4 +214,27 @@ func TestContratoElAvisoDeEjemploVerificaYSeLee(t *testing.T) {
 	if err := doc.Components.Schemas["EventoPedido"].Value.VisitJSON(v); err != nil {
 		t.Errorf("el cuerpo del vector no cumple EventoPedido: %v", err)
 	}
+}
+
+// Contra el FAV real, solo con credenciales por variable de entorno. Es una
+// consulta de solo lectura con un id al azar: **no crea ningún pedido**, porque
+// un POST /v1/pedidos aparta stock de verdad en su sistema durante 48 horas.
+//
+// Lo que verifica es justo lo que nos faltaba: que la operación que FAV había
+// quitado en su 1.2.0 está de vuelta y desplegada, y que responde el código que
+// declara su 1.3.0 (PEDIDO_INEXISTENTE) y no el genérico de ruta inexistente.
+//
+//	FAV_URL_CONTRATO=https://... FAV_API_KEY=... go test ./internal/fav/ -run ContratoConsultaReal -v
+func TestContratoConsultaRealDePedidoInexistente(t *testing.T) {
+	base, clave := os.Getenv("FAV_URL_CONTRATO"), os.Getenv("FAV_API_KEY")
+	if base == "" || clave == "" {
+		t.Skip("sin FAV_URL_CONTRATO y FAV_API_KEY: se omite la verificación contra el FAV real")
+	}
+	c := fav.NuevoCliente(base, clave, nil)
+	_, err := c.ConsultarPedido(context.Background(), "00000000-0000-4000-8000-000000000000")
+	if !errors.Is(err, fav.ErrPedidoInexistente) {
+		t.Fatalf("err = %v; quiero ErrPedidoInexistente. Si da el error de ruta inexistente, "+
+			"FAV todavía no desplegó su 1.3.0", err)
+	}
+	t.Log("GET /v1/pedidos/{pedidoId} está desplegado y responde PEDIDO_INEXISTENTE")
 }

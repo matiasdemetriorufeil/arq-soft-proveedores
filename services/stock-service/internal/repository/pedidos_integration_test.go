@@ -203,7 +203,7 @@ func TestElAvisoYLaConsultaDeRespaldoALaVezSumanUnaSolaVez(t *testing.T) {
 		o.ID, pedido); err != nil {
 		t.Fatal(err)
 	}
-	svc := service.NuevoServicioPedidos(repo, favPagado{}, "")
+	svc := service.NuevoServicioPedidos(repo, favPagado{})
 
 	var wg sync.WaitGroup
 	for i := range 10 {

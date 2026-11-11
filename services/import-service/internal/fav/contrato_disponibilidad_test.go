@@ -11,49 +11,34 @@ package fav_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/routers"
 
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/import-service/internal/fav"
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/import-service/internal/favmock"
 )
 
-const rutaContrato12 = "../../../../docs/contracts/consumidos/fav-catalogo-pedidos-v1.2.0.openapi.yaml"
-
-func cargarContrato12(t *testing.T) *openapi3.T {
-	t.Helper()
-	loader := openapi3.NewLoader()
-	doc, err := loader.LoadFromFile(rutaContrato12)
-	if err != nil {
-		t.Fatalf("no se pudo leer el contrato 1.2.0 de FAV: %v", err)
-	}
-	if err := doc.Validate(context.Background()); err != nil {
-		t.Fatalf("el contrato 1.2.0 de FAV no es un OpenAPI válido: %v", err)
-	}
-	return doc
-}
-
-// La 1.2.0 tiene que traer la operación nueva. Si FAV la saca, este test avisa.
-func TestContratoDisponibilidadExisteEnLa120(t *testing.T) {
-	doc := cargarContrato12(t)
+// La operación tiene que seguir en el contrato vigente. Si FAV la saca, este
+// test avisa: no se fija la versión exacta a propósito, porque entonces habría
+// que editarlo en cada release suyo y dejaría de avisar lo que importa.
+func TestContratoDisponibilidadSigueEnElContratoVigente(t *testing.T) {
+	doc := cargarContrato(t)
 	if doc.Paths.Find("/v1/disponibilidad") == nil {
-		t.Fatal("el contrato 1.2.0 no declara GET /v1/disponibilidad")
+		t.Fatalf("el contrato vigente (%s) no declara GET /v1/disponibilidad", doc.Info.Version)
 	}
-	if v := doc.Info.Version; v != "1.2.0" {
-		t.Errorf("info.version = %q; se esperaba 1.2.0", v)
-	}
+	t.Logf("validado contra el contrato %s de FAV", doc.Info.Version)
 }
 
 // Nuestra request y la respuesta del mock tienen que cumplir el contrato: el
 // parámetro variantes, el header de la clave y el esquema de la respuesta.
 func TestContratoDisponibilidadNuestraRequestYLaRespuestaCumplen(t *testing.T) {
-	doc := cargarContrato12(t)
+	doc := cargarContrato(t)
 	var router routers.Router
 	var errValidacion error
 
@@ -99,7 +84,7 @@ func TestContratoDisponibilidadNuestraRequestYLaRespuestaCumplen(t *testing.T) {
 // El contrato acota variantes a 1..200. Nuestro tope tiene que ser el mismo,
 // porque es lo que define el troceado.
 func TestContratoDisponibilidadElTopeDeVariantesCoincide(t *testing.T) {
-	doc := cargarContrato12(t)
+	doc := cargarContrato(t)
 	if fav.MaxVariantesPorConsulta != favmock.MaxVariantesDisponibilidad {
 		t.Errorf("el cliente trocea en %d y el mock acepta %d: tienen que coincidir",
 			fav.MaxVariantesPorConsulta, favmock.MaxVariantesDisponibilidad)
@@ -110,20 +95,16 @@ func TestContratoDisponibilidadElTopeDeVariantesCoincide(t *testing.T) {
 	}
 }
 
-// Hueco del contrato de FAV, encontrado el 11/11: su README documenta
-// "404 NO_ENCONTRADO ... o FAV apagó temporalmente la operación
-// (GET /v1/disponibilidad)", pero el OpenAPI 1.2.0 NO declara el 404 para esa
-// ruta. Nuestro cliente lo trata igual, como ErrDisponibilidadApagada, porque
-// confiar solo en el OpenAPI haría que un 404 se leyera como respuesta fuera de
-// contrato y tirara la importación entera.
-//
-// Este test documenta la diferencia. Si FAV declara el 404, deja de fallar la
-// condición y hay que actualizar el comentario, no el comportamiento.
-func TestContratoDisponibilidadEl404NoEstaDeclaradoPeroLoManejamos(t *testing.T) {
-	doc := cargarContrato12(t)
-	resp := doc.Paths.Find("/v1/disponibilidad").Get.Responses
-	if resp.Status(http.StatusNotFound) != nil {
-		t.Log("FAV ahora declara el 404 en /v1/disponibilidad: se puede sacar la nota del ADR-009")
+// FAV declaró el 404 de /v1/disponibilidad en su contrato 1.3.0. Antes estaba
+// solo en su README ("o FAV apagó temporalmente la operación") y no en el
+// OpenAPI, así que un cliente que validara estrictamente contra el contrato lo
+// habría leído como respuesta fuera de contrato. Se lo reportamos y lo
+// agregaron; este test fija las dos mitades: que lo declaran y que nuestro
+// cliente lo trata como "operación apagada" y no como una caída.
+func TestContratoDisponibilidadDeclaraEl404YLoManejamos(t *testing.T) {
+	doc := cargarContrato(t)
+	if doc.Paths.Find("/v1/disponibilidad").Get.Responses.Status(http.StatusNotFound) == nil {
+		t.Errorf("el contrato %s volvió a no declarar el 404 de /v1/disponibilidad", doc.Info.Version)
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -134,11 +115,11 @@ func TestContratoDisponibilidadEl404NoEstaDeclaradoPeroLoManejamos(t *testing.T)
 
 	_, err := fav.NuevoCliente(srv.URL, clavePrueba, nil).
 		ConsultarDisponibilidad(context.Background(), []string{"var-a"}, "")
-	if err == nil {
-		t.Fatal("un 404 tiene que devolver error")
+	if !errors.Is(err, fav.ErrDisponibilidadApagada) {
+		t.Errorf("err = %v; quiero ErrDisponibilidadApagada", err)
 	}
-	if !strings.Contains(err.Error(), "disponibilidad") {
-		t.Errorf("err = %v; se esperaba el error propio de la operación apagada", err)
+	if errors.Is(err, fav.ErrNoDisponible) {
+		t.Error("un 404 no es una caída de FAV: no tiene que ser ErrNoDisponible")
 	}
 }
 

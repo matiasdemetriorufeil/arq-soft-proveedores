@@ -1,6 +1,6 @@
 # ADR-009 — Consumo del proveedor: catálogo y pedidos de FAV (D9)
 
-- **Estado:** **aceptado e implementado para el catálogo**, que funciona contra el FAV real. **Parcialmente invalidado para los pedidos**: el 11/11 FAV entregó su URL y su contrato **1.2.0**, que **quitó** `GET /v1/pedidos/{pedidoId}` y el webhook `pedidoActualizado`, las dos piezas sobre las que esta decisión apoyaba la confirmación de un pedido. El código existe y está probado, pero contra una versión del contrato que FAV ya no publica. Ver [Lo que rompió la 1.2.0 de FAV](#lo-que-rompió-la-120-de-fav).
+- **Estado:** **aceptado e implementado**, contra el FAV real desplegado. El catálogo se importa de su API con el stock de `GET /v1/disponibilidad`, y la consulta de estado del pedido volvió en su contrato **1.3.0** (11/11), así que el ciclo de la orden vuelve a cerrarse solo. **Lo único que no existe es el webhook**: FAV lo quitó en la 1.2.0 y no lo repuso, así que el estado se sigue con la consulta periódica y nuestro receptor queda sin uso. Ver [La ida y vuelta con FAV](#la-ida-y-vuelta-con-fav-120-y-130).
 - **Fecha:** 2026-10-23 · actualizado 2026-11-11
 - **Entrega:** 2 (23/10) y 3 (06/11)
 - **Decisión de la consigna:** D9. Incorporación de la capacidad externa, adaptación al contrato y comportamiento ante errores, cambios o indisponibilidad.
@@ -112,7 +112,7 @@ Cuando el stock propio de una prenda de FAV cae bajo el punto de reorden, `stock
 - **Sus precios pueden estar hasta 5 minutos desactualizados** en condiciones normales, y hasta 24 horas si FAV se cae.
 - **Rubros mezclados:** el comparador tiene productos de energía solar y va a sumar prendas. Cada variante de FAV es un producto propio, así que hasta que `catalog-service` las asocie con prendas de otros proveedores, FAV no compite con nadie en esos productos. La búsqueda ([ADR-006](ADR-006-busqueda.md)) va a necesitar filtrar por categoría.
 - **El pago es manual** (transferencia) y la entrega se coordina por contacto: la orden queda `SOLICITADA` hasta que una persona paga, y un pago tardío termina en `EN_REVISION` y se resuelve a mano.
-- **`stock-service` tiene una ruta accesible desde afuera que no pasa por el gateway.** Es una segunda puerta de entrada al sistema, limitada a `POST /webhooks/fav` y protegida solo por la firma HMAC, así que el secreto de avisos se cuida igual que una clave. Lo aceptamos porque la consigna (4.1) prohíbe canalizar la comunicación con el proveedor por el gateway; lo vamos a confirmar con la cátedra. Con el mock, el aviso viaja por la red interna del compose; con el FAV desplegado, `FAV_NOTIFICACION_URL` tiene que ser una URL pública que llegue solo a esa ruta (parte de la nube, Integrante 4).
+- ~~**`stock-service` tiene una ruta accesible desde afuera que no pasa por el gateway.**~~ **Dejó de aplicar el 11/11:** FAV no tiene webhook, así que el puerto se cerró y esa segunda puerta de entrada no existe. Se conserva el análisis porque vuelve a valer si alguna vez lo publican. El texto original: Es una segunda puerta de entrada al sistema, limitada a `POST /webhooks/fav` y protegida solo por la firma HMAC, así que el secreto de avisos se cuida igual que una clave. Lo aceptamos porque la consigna (4.1) prohíbe canalizar la comunicación con el proveedor por el gateway; lo vamos a confirmar con la cátedra. Con el mock, el aviso viaja por la red interna del compose; con el FAV desplegado, `FAV_NOTIFICACION_URL` tiene que ser una URL pública que llegue solo a esa ruta (parte de la nube, Integrante 4).
 - **Dependemos de definiciones pendientes de FAV:** su URL desplegada, cómo entrega la clave y el secreto, y los límites que marcó como propuesta (60 pedidos por minuto, 20 variantes, 10 unidades).
 
 ## Con qué lo medimos
@@ -146,7 +146,7 @@ Cuando esté integrado de punta a punta:
 - **Caída simulada en el Game Day:** con FAV cortado, la capacidad publicada sigue en `200`, el ranking muestra sus últimas ofertas válidas y las órdenes nuevas esperan en `BORRADOR`.
 - **Test de contrato** en verde contra la v1.1.0 y contra su mock.
 
-## Lo que rompió la 1.2.0 de FAV
+## La ida y vuelta con FAV: 1.2.0 y 1.3.0
 
 El 11/11 FAV entregó su URL desplegada (`https://fav-ucc.chilecentral.cloudapp.azure.com`, HTTPS con certificado válido), su clave y el contrato **1.2.0** del 09/11. Comparando los dos archivos en [`consumidos/`](../contracts/consumidos/README.md):
 
@@ -179,10 +179,36 @@ FAV la publica como compatible. **No lo es**: la sección 5 de su propio contrat
 
 **Verificado contra el FAV real** (`TestContratoDisponibilidadContraElFAVReal`): 19 variantes con stock entre 0 y 9, **6 de ellas en 0**. Antes esas 6 entraban al ranking con stock 10.
 
-**Lo que no se decidió todavía**, porque es una decisión de grupo y no técnica:
+**Desenlace (11/11, mismo día).** Se les reportó lo de arriba por el canal que ellos
+mismos publican, con tres puntos: que quitar operaciones es incompatible según su
+propia sección 5, que el número `1.1.0` quedó usado para dos contratos distintos, y
+que el `404` de la disponibilidad estaba en su README pero no en su OpenAPI.
+**Publicaron la 1.3.0 el mismo día** y resolvieron dos de los tres:
 
-- ¿Se apunta `FAV_URL` al FAV real para la presentación? El catálogo funciona, pero **cambian los SKU** del ranking (`FAV-var-remera-*` → `FAV-var-buzo-lino-hh-*`, etc.), y eso toca los ejemplos de `README.md`, `DEMO-ENTREGA-3.md` y `para-renewable-energy.md`.
-- ¿Se pide a FAV que publique la consulta de estado como `1.3.0`, o se acepta el cierre manual de la orden?
+| Lo que pedimos | Qué pasó |
+|---|---|
+| Reponer `GET /v1/pedidos/{pedidoId}` | **Hecho.** Con los cuatro estados (`PENDIENTE_DE_PAGO`, `PAGADO`, `VENCIDO`, `A_VERIFICAR`) y un código nuevo, `PEDIDO_INEXISTENTE` |
+| Declarar el `404` de `/v1/disponibilidad` en el OpenAPI | **Hecho** |
+| Reponer el webhook | **No.** Sigue sin existir |
+
+**Lo que cambió de nuestro lado**, y fue menos de lo que parecía: los cuatro estados
+ya estaban en el código y el modelo del pedido coincide campo por campo, así que la
+consulta de respaldo volvió a funcionar sin tocar lógica. **El único cambio real fue
+al revés de lo esperado:** la 1.3.0 **quitó `notificacionUrl`** de `PedidoNuevo` y su
+esquema declara `additionalProperties: false`, así que seguíamos mandando un campo
+que ahora hace que el pedido sea rechazado con `400 PEDIDO_INVALIDO`. Se sacó del
+cliente, del servicio y de la configuración.
+
+**Verificado contra su servidor desplegado** (`TestContratoConsultaRealDePedidoInexistente`,
+una consulta de solo lectura con un id al azar, que no crea ningún pedido): la ruta
+responde `404 PEDIDO_INEXISTENTE`, el código de su 1.3.0, y no el genérico de ruta
+inexistente. Los tests de contrato de los pedidos y del catálogo pasaron a validar
+contra la 1.3.0; la verificación del webhook quedó apuntando a la copia de la 1.1.0,
+que es la última versión que lo especificó.
+
+**Lo que queda sin cerrarse solo:** si FAV confirma un pago, nos enteramos en la
+vuelta siguiente de la consulta (cada 15 minutos) en lugar de al instante. Para este
+dominio es de sobra.
 
 ## Pendiente
 
