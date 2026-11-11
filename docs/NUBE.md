@@ -156,7 +156,50 @@ Con el túnel abierto: Grafana en <http://localhost:3000> (usuario `admin`, cont
 | ver los logs del gateway | `docker compose logs -f api-gateway` |
 | actualizar a lo último de `main` | `bash infra/nube/instalar.sh` |
 | apagar sin perder datos | `docker compose down` |
-| simular la caída de FAV (Game Day) | `curl -X POST localhost:8090/_mock/modo -d '{"modo":"caido"}'` |
+| apagar la VM sin perder la IP | `az vm deallocate -g arqsoft-rg -n arqsoft` (prender: `az vm start`) |
+| simular la caída de FAV (Game Day) | **ya no alcanza el mock**: ver abajo |
+
+### Dar de alta la clave de un grupo consumidor
+
+Las claves viven en `API_KEYS` del `.env`, separadas por coma. **La primera es la
+interna**, con la que el gateway llama a los servicios: no se toca ni se entrega.
+
+```bash
+cd ~/arq-soft-proveedores
+CLAVE="grupo-$(openssl rand -hex 12)"
+# Se agrega al final de la lista, sin pisar las que ya estaban.
+sed -i "s|^\(API_KEYS=.*\)|\1,$CLAVE|" .env
+
+sudo docker compose -f docker-compose.yml -f docker-compose.nube.yml \
+  up -d --no-deps api-gateway proveedores-service-1 proveedores-service-2 stock-service
+echo "$CLAVE"   # entregarla por canal privado, nunca por el repo
+```
+
+**Hay que recrear los cuatro servicios, no solo el gateway.** Es el error fácil, y
+pasa de verdad: el gateway **reenvía la `X-API-Key` del cliente** al servicio de
+atrás, y cada servicio la valida por su cuenta contra su propia copia de
+`API_KEYS`. Si se recrea solo el gateway, la clave nueva pasa el primer control y
+`proveedores-service` la rechaza: el consumidor ve un **`401` que parece del
+gateway y no lo es**. Se verifica así, y los cuatro tienen que decir lo mismo:
+
+```bash
+for c in api-gateway proveedores-service-1 proveedores-service-2 stock-service; do
+  printf '%-24s' "$c"
+  sudo docker inspect arq-soft-proveedores-$c-1 \n    --format '{{range .Config.Env}}{{println .}}{{end}}' |
+    grep '^API_KEYS=' | awk -F, '{print NF" claves"}'
+done
+```
+
+### Simular la caída de FAV (Game Day)
+
+Desde el 11/11 el sistema le habla al **FAV real**, así que poner el mock en
+`caido` **no hace nada**. Dos caminos:
+
+- **Cortarle la red a `import-service`**, que es lo más parecido a que FAV se caiga:
+  `sudo docker network disconnect arq-soft-proveedores_interna arq-soft-proveedores-import-service-1`
+  y reconectar con `network connect` cuando termine.
+- **Volver al mock**: dejar `FAV_URL=` vacío en el `.env` y recrear
+  `import-service`. Queda el respaldo `.env.respaldo-antes-de-fav-real`.
 
 ## Pendiente
 
