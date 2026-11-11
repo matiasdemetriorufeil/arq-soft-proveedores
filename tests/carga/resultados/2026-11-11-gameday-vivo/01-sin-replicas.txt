@@ -1,0 +1,18 @@
+GAME DAY · Escenario: caen las dos replicas de proveedores-service
+Hora de inicio: 12:17:18
+
+  t=0s    alerta=inactive  capacidad=(200, '')
+  ...     contenedores detenidos (1s)
+  t=   1s  alerta=inactive  capacidad=http 502 NO_DISPONIBLE
+  t=  12s  alerta=pending   capacidad=http 502 NO_DISPONIBLE
+  t=  22s  alerta=pending   capacidad=http 502 NO_DISPONIBLE
+  t=  32s  alerta=pending   capacidad=http 502 NO_DISPONIBLE
+  t=  43s  alerta=firing    capacidad=http 502 NO_DISPONIBLE
+
+  >>> LA ALERTA SE ENCENDIO a los 43 segundos <<<
+
+  restaurando...
+  capacidad recuperada 5s despues de arrancar los contenedores
+  alerta de nuevo en inactive
+
+Resumen: alerta encendida a los 43s

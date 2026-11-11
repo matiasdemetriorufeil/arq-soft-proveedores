@@ -1,0 +1,16 @@
+ESCENARIO C (bien) � Solo FAV inalcanzable: se apunta FAV_URL a una direccion muerta.
+Mongo, RabbitMQ y el resto siguen intactos, que es lo que pasa si FAV se cae de verdad.
+
+  antes:  ranking de una prenda de FAV -> http (200, 1)
+  FAV_URL apuntado a una IP de descarte; import-service recreado (sincroniza al arrancar)
+    "msg":"trazas habilitadas"
+    "msg":"servidor escuchando"
+    "msg":"no se pudo bajar el catálogo de FAV; siguen valiendo las últimas ofertas"
+    "breaker":"cerrado"
+    "msg":"sincronización del catálogo de FAV terminada"
+
+  durante la caida: ranking de la prenda -> http 200, 1 oferta(s)  <- la capacidad NO se entera
+  y un producto propio               -> http 200
+
+  restaurado. ultima sincronizacion: "estado":"sin_cambios"
+  ranking despues: http (200, 1)

@@ -1,0 +1,14 @@
+<stdin>:28: SyntaxWarning: invalid escape sequence '\|'
+ESCENARIO B · Cae la cache (Redis). No corta la capacidad: solo la hace mas lenta.
+
+  con Redis:  121 ms
+  sin Redis:  168 ms   <- se paga el timeout de 50 ms del decorador, y sigue respondiendo 200
+  recuperado: 103 ms
+
+ESCENARIO C · Cae el proveedor externo (FAV). El ranking sigue con la ultima importacion valida.
+
+  import-service desconectado de la red
+  ranking de una prenda de FAV: http 200, 104 ms  <- responde igual
+  intentos fallidos de sincronizacion en el log: 0
+  import-service reconectado
+  ranking despues: http 200, 104 ms

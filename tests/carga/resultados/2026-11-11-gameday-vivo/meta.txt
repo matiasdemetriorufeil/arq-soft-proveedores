@@ -1,0 +1,33 @@
+Ensayo del Game Day en vivo, contra la instancia desplegada
+===========================================================
+
+Fecha:   11/11/2026
+Guion:   docs/GAMEDAY.md
+Destino: http://20.226.84.78 (VM en Azure brazilsouth), con FAV real conectado
+Origen:  Cordoba, Argentina. Los tiempos incluyen ida y vuelta de red.
+Alertas: vistas por el tunel SSH en http://localhost:9090/alerts
+
+A diferencia del POSTMORTEM del 10/11 (que se corrio sobre el stack local), esto
+se corrio contra el sistema desplegado, que es donde va a pasar la presentacion.
+
+Archivos
+--------
+01-sin-replicas.txt   Caen las dos replicas de proveedores-service. 502 al
+                      instante, alerta SinReplicasSanas en pending a los 12 s y
+                      en firing a los 43 s. Recuperacion 5 s despues de
+                      arrancar los contenedores.
+02-redis-y-fav.txt    Cae la cache: 121 -> 168 ms, sin cortar nada. Y un primer
+                      intento del escenario del proveedor que quedo mal hecho:
+                      desconectar import-service de la red lo aisla tambien de
+                      Mongo y RabbitMQ, asi que no simula "se cayo FAV". Se
+                      conserva porque explica por que el 03 existe.
+03-fav-caido-bien.txt FAV inalcanzable de verdad (FAV_URL a una IP de descarte),
+                      con Mongo y RabbitMQ intactos. El log muestra el fallo y
+                      el estado del breaker; el ranking sigue respondiendo con
+                      la ultima importacion valida.
+
+Lo que NO enciende una alerta
+-----------------------------
+LatenciaP95Alta y ErroresAltos tienen for: 2m, asi que en una demo de cinco
+minutos no llegan a dispararse. La unica practica en vivo es SinReplicasSanas,
+con for: 30s.
