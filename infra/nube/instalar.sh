@@ -124,9 +124,7 @@ elif ! grep -q '^FAV_URL=.\+' .env; then
   echo "   En $DIR/.env, con los datos que entregó FAV:"
   echo "     FAV_URL=<su URL>"
   echo "     FAV_API_KEY=<su clave>"
-  echo "     FAV_SECRETO_AVISOS=<el secreto compartido de los avisos>"
-  echo "     FAV_NOTIFICACION_URL=http://$IP:${PUERTO_WEBHOOK_FAV:-8081}/webhooks/fav"
   echo "   Después: $DOCKER compose ${ARCHIVOS[*]} up -d ${SERVICIOS[*]}"
-  echo "   Y pasarle a FAV esa URL del webhook (ver docs/contracts/para-fav.md)."
-  echo "   Acordate de abrir el puerto ${PUERTO_WEBHOOK_FAV:-8081} en el firewall del proveedor."
+  echo "   El estado del pedido se sigue con GET /v1/pedidos/{pedidoId}: su contrato"
+  echo "   1.2.0 quito el webhook y la 1.3.0 no lo devolvio (ver ADR-009)."
 fi

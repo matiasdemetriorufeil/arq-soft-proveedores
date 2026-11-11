@@ -293,7 +293,6 @@ services:
       # El receptor del webhook, tal como lo alcanza FAV. Con el mock es la
       # red interna; con el FAV desplegado tiene que ser una URL pública que
       # llegue a stock-service sin pasar por el gateway.
-      FAV_NOTIFICACION_URL: ${FAV_NOTIFICACION_URL:-http://stock-service:8080/webhooks/fav}
       FAV_SECRETO_AVISOS: ${FAV_SECRETO_AVISOS:-secreto-de-prueba}
       INTERVALO_PEDIDOS_FAV: ${INTERVALO_PEDIDOS_FAV:-15m}
     depends_on:

@@ -203,7 +203,7 @@ Un ciclo interno de `stock-service` corre al arrancar y cada `INTERVALO_REPOSICI
 - **CA-14.2** *Dado* una orden abierta para ese producto, *entonces* no se genera otra. Evidencia: `TestUnaSolaOrdenAbiertaPorSKU` (integración), que comprueba el índice único parcial `ux_ordenes_abierta_por_sku`: la invariante la garantiza la base, no solo la lógica. `TestOrdenNuevaDespuesDeConfirmada` verifica que sí se puede crear una nueva cuando la anterior se cerró.
 - **CA-14.3** *Dado* una orden, *entonces* solo puede pasar a `SOLICITADA` desde `BORRADOR`; a `CONFIRMADA` o `VENCIDA` desde `SOLICITADA`; y a `EN_REVISION` desde `SOLICITADA` o `VENCIDA` (RN-15). Evidencia: `TestTransicionesDeLaOrden` en `internal/service/ordenes_test.go`, un test de tabla sobre **las 25 combinaciones** de los cinco estados, que verifica las 5 válidas y rechaza las 20 restantes con `409 TRANSICION_INVALIDA`.
 
-#### HU-15 — Comprar al catálogo de ropa como a un proveedor más · parcial
+#### HU-15 — Comprar al catálogo de ropa como a un proveedor más · implementado
 *Como operador de compras, quiero que el catálogo del grupo de ropa participe del ranking y del stock, para comparar sus precios con los demás.*
 
 - **CA-15.1** *Dado* el catálogo de ropa disponible, *entonces* sus productos aparecen entre los candidatos del ranking y su compra impacta en el stock.
@@ -212,11 +212,11 @@ Un ciclo interno de `stock-service` corre al arrancar y cada `INTERVALO_REPOSICI
 - **CA-15.4** *Dado* que una prenda de FAV baja de su mínimo, *entonces* `stock-service` le hace el pedido con `Idempotency-Key` `<id de la orden>-<intento>`, y un reintento por timeout no crea un pedido duplicado. La orden pasa a `SOLICITADA` (RN-15). *Implementado:* `TestEnviarOrdenFAVCaidoReintentaConLaMismaClave` y `TestEnviarOrdenRechazadaUsaUnaClaveNuevaEnElIntentoSiguiente` (`internal/service`), `TestIntentosYClavesDelPedido` (integración contra PostgreSQL 16).
 - **CA-15.5** *Dado* que FAV avisa que el pedido se pagó, *entonces* se verifica la firma HMAC, se descarta un aviso repetido, se confirma el estado con `GET /v1/pedidos/{pedidoId}`, la orden pasa a `CONFIRMADA` y el stock suma las unidades **una sola vez**. Si el aviso se pierde, lo recupera la consulta de respaldo. *Implementado:* `TestAvisoPagadoConfirmaLaOrdenYSumaElStock`, `TestSeguimientoRecuperaUnAvisoPerdido`, `TestWebhookRechazos` y, contra PostgreSQL real, `TestAvisoRepetidoAlMismoTiempo` y `TestElAvisoYLaConsultaDeRespaldoALaVezSumanUnaSolaVez`.
 
-**Por qué parcial, al 11/11.** El catálogo se consume del **FAV real desplegado** y el
-stock sale de su `GET /v1/disponibilidad`: verificado, las 19 variantes con el stock
-que informa su API. Pero **su contrato 1.2.0 quitó `GET /v1/pedidos/{pedidoId}` y el
-webhook** que sí tenía la 1.1.0 contra la que escribimos el cliente, y eran las dos
-formas de saber si el pago se acreditó. Caso por caso:
+**Al 11/11, con la 1.3.0 de FAV.** El catálogo se consume del **FAV real desplegado**
+y el stock sale de su `GET /v1/disponibilidad`: verificado, las 19 variantes con el
+stock que informa su API. Su 1.2.0 había quitado la consulta de estado del pedido y
+el webhook; **se lo reportamos y la 1.3.0 repuso la consulta** el mismo día, así que
+el ciclo de la orden vuelve a cerrarse solo. Caso por caso:
 
 - **CA-15.1: completo.** Sus productos llegan al ranking y la compra impacta en el
   stock. Verificado contra el FAV real.
@@ -224,19 +224,19 @@ formas de saber si el pago se acreditó. Caso por caso:
   ofertas, informa la antigüedad en `/estado` y publica su retiro a las 24 h, pero
   **el ranking no le marca la antigüedad al usuario**: el dato está en `/estado`, no
   en la respuesta de la capacidad.
-- **CA-15.3: completo**, con una aclaración: los tests de contrato corren contra la
-  copia de la **1.1.0**, y la operación nueva de la 1.2.0 tiene el suyo
-  (`contrato_disponibilidad_test.go`). Justamente **este criterio es el que detectó
-  el cambio**: comparar los dos archivos mostró que la 1.2.0 saca dos operaciones
-  declarándose compatible.
+- **CA-15.3: completo, y es el criterio que se ganó el sueldo.** Comparar las copias
+  de su contrato detectó que la 1.2.0 quitaba dos operaciones declarándose
+  compatible, y después que la 1.3.0 quitaba `notificacionUrl` de `PedidoNuevo` con
+  `additionalProperties: false` —seguir mandándolo habría hecho que cada pedido
+  terminara en `400`—. Los tests validan contra la **1.3.0** vigente.
 - **CA-15.4: completo.** El pedido sale con `Idempotency-Key` y la orden pasa a
   `SOLICITADA`.
-- **CA-15.5: NO se puede cumplir contra el FAV real.** El código existe y está
-  probado contra el mock (firma HMAC, deduplicación por `eventoId`, confirmación con
-  `GET` y suma del stock una sola vez), pero **FAV no tiene webhook ni consulta de
-  estado**: no hay a quién hablarle. Una orden queda en `SOLICITADA` y se cierra a
-  mano con `POST /api/v1/stock/ordenes/{id}/transiciones`. Se le pidió a FAV que
-  publique la consulta de estado como 1.3.0 ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)).
+- **CA-15.5: completo por la consulta, no por el aviso.** La confirmación con
+  `GET /v1/pedidos/{pedidoId}` cierra la orden y suma el stock una sola vez; es la
+  fuente de verdad que ya pide su contrato. **FAV no tiene webhook**, así que nuestro
+  receptor (firma HMAC y deduplicación por `eventoId`) existe, está probado y no se
+  usa. El efecto práctico: nos enteramos de un pago en la vuelta siguiente de la
+  consulta, cada 15 minutos, en lugar de al instante.
 
 #### HU-16 — Buscar productos y proveedores con filtros · implementado ([ADR-006](docs/adr/ADR-006-busqueda.md))
 *Como operador de compras, quiero buscar por texto y filtrar y ordenar los resultados, para encontrar rápido lo que necesito.*

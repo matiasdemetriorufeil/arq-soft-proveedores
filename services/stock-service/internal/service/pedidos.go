@@ -74,25 +74,24 @@ type ClienteFAV interface {
 // ServicioPedidos le hace los pedidos de reposición a FAV y sigue su estado
 // por el webhook y por la consulta de respaldo (ADR-009).
 type ServicioPedidos struct {
-	repo            RepositorioPedidos
-	fav             ClienteFAV
-	notificacionURL string
+	repo RepositorioPedidos
+	fav  ClienteFAV
 	// enSegundoPlano corre el procesamiento de un aviso después de responder
 	// al webhook. En los tests se reemplaza por una llamada directa.
 	enSegundoPlano func(func())
 }
 
-// NuevoServicioPedidos arma el servicio. notificacionURL es nuestro receptor
-// del webhook tal como lo alcanza FAV; vacía, el pedido sale sin avisos y el
-// estado se sigue solo con la consulta de respaldo.
-func NuevoServicioPedidos(repo RepositorioPedidos, cliente ClienteFAV, notificacionURL string) *ServicioPedidos {
-	return &ServicioPedidos{repo: repo, fav: cliente, notificacionURL: notificacionURL,
+// NuevoServicioPedidos arma el servicio. El estado del pedido se sigue con
+// `GET /v1/pedidos/{pedidoId}`: FAV no tiene webhook desde su contrato 1.2.0, y
+// la 1.3.0 devolvió la consulta pero no el aviso (ADR-009).
+func NuevoServicioPedidos(repo RepositorioPedidos, cliente ClienteFAV) *ServicioPedidos {
+	return &ServicioPedidos{repo: repo, fav: cliente,
 		enSegundoPlano: func(f func()) { go f() }}
 }
 
 // EnviarOrden hace el pedido a FAV de una orden en BORRADOR (ADR-009):
-// Idempotency-Key `<id>-<intento>`, referenciaExterna = id de la orden y
-// notificacionUrl = nuestro receptor. Con 201 la orden pasa a SOLICITADA.
+// Idempotency-Key `<id>-<intento>` y referenciaExterna = id de la orden. Con
+// 201 la orden pasa a SOLICITADA.
 func (s *ServicioPedidos) EnviarOrden(ctx context.Context, id string) (repository.Orden, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -140,7 +139,6 @@ func (s *ServicioPedidos) enviar(ctx context.Context, o repository.Orden) (repos
 
 	pedido, err := s.fav.CrearPedido(ctx, clave, fav.PedidoNuevo{
 		ReferenciaExterna: o.ID,
-		NotificacionURL:   s.notificacionURL,
 		Items:             []fav.ItemPedido{{VarianteID: strings.TrimPrefix(o.SKU, PrefijoSKUDeFAV), Cantidad: o.Cantidad}},
 	})
 	if err != nil {

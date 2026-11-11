@@ -7,7 +7,8 @@ agrega su archivo al lado y se revisa [ADR-009](../../adr/ADR-009-consumo-provee
 
 | Proveedor | Contrato | Versión | Publicada | Estado |
 |---|---|---|---|---|
-| FAV (tienda de ropa) | [`fav-catalogo-pedidos-v1.2.0.openapi.yaml`](fav-catalogo-pedidos-v1.2.0.openapi.yaml) + [`fav-readme-v1.2.0.md`](fav-readme-v1.2.0.md) | **1.2.0** | 09/11/2026, recibida el 11/11 | **Vigente.** Rompe dos cosas nuestras: ver abajo |
+| FAV (tienda de ropa) | [`fav-catalogo-pedidos-v1.3.0.openapi.yaml`](fav-catalogo-pedidos-v1.3.0.openapi.yaml) + [`fav-readme-v1.3.0.md`](fav-readme-v1.3.0.md) | **1.3.0** | 11/11/2026 | **Vigente y desplegada.** Repuso la consulta de estado del pedido que había quitado la 1.2.0, y declaró el `404` de la disponibilidad. Contra esta corren los tests de contrato |
+| FAV (tienda de ropa) | [`fav-catalogo-pedidos-v1.2.0.openapi.yaml`](fav-catalogo-pedidos-v1.2.0.openapi.yaml) + [`fav-readme-v1.2.0.md`](fav-readme-v1.2.0.md) | 1.2.0 | 09/11/2026 | Reemplazada. Es la que quitó las dos operaciones |
 | FAV (tienda de ropa) | [`fav-catalogo-pedidos-v1.1.0.openapi.yaml`](fav-catalogo-pedidos-v1.1.0.openapi.yaml) | 1.1.0 | 15/10/2026 | Contra esta se escribió nuestro adaptador de pedidos |
 
 URL desplegada de FAV: `https://fav-ucc.chilecentral.cloudapp.azure.com` (HTTPS con

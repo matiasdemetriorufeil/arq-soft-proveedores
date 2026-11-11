@@ -176,7 +176,7 @@ puede comprarle; no es el stock propio, que es de `stock-service`.
 | `import-service` → MongoDB | síncrona | MongoDB wire | implementado | Timeout de 3 s por operación |
 | `import-service` → FAV (grupo de ropa), catálogo y disponibilidad | síncrona | HTTPS, cada 5 min | implementado **contra el FAV real** (11/11) | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, 3 reintentos, circuit breaker, última importación válida hasta 24 h |
 | `stock-service` → FAV, pedidos | síncrona | HTTP con `Idempotency-Key` | implementado, probado contra `fav-mock` | [ADR-009](adr/ADR-009-consumo-proveedor.md): timeout de 3 s, 3 reintentos con la misma clave, consulta de respaldo cada 15 min |
-| FAV → `stock-service` (directo, sin gateway) | asíncrona (webhook) | HTTP firmado con HMAC | implementado, pero **sin uso**: la 1.2.0 de FAV no tiene webhook | Aviso de cambio de estado del pedido: firma, deduplicación por `eventoId` y confirmación con `GET` ([ADR-009](adr/ADR-009-consumo-proveedor.md)) |
+| FAV → `stock-service` (directo, sin gateway) | asíncrona (webhook) | HTTP firmado con HMAC | implementado, pero **sin uso**: FAV no tiene webhook desde su 1.2.0 y la 1.3.0 no lo repuso | Aviso de cambio de estado del pedido: firma, deduplicación por `eventoId` y confirmación con `GET` ([ADR-009](adr/ADR-009-consumo-proveedor.md)) |
 
 ## 7. Flujo principal
 
@@ -314,14 +314,13 @@ grupal pide actualizar.
   reservar. Alcanza para mostrar el flujo completo; no tiene manejo de sesión más
   allá del JWT en memoria, ni vistas de administración (órdenes de reposición,
   estado de la importación), que se operan por API.
-- **Un pedido a FAV no se puede cerrar solo.** El catálogo se consume del FAV real
-  desde el 11/11, pero su contrato **1.2.0 quitó `GET /v1/pedidos/{pedidoId}` y el
-  webhook** que tenía la 1.1.0, que eran las dos formas de saber si el pago se
-  acreditó. FAV lo confirma por mail, fuera de la API. Entonces una orden enviada
-  se queda en `SOLICITADA` hasta que alguien la pasa a `CONFIRMADA` a mano con
-  `POST /api/v1/stock/ordenes/{id}/transiciones`. El código del seguimiento y del
-  receptor del webhook existe y está probado contra el mock, pero **contra el FAV
-  real no tiene a quién hablarle** ([ADR-009](adr/ADR-009-consumo-proveedor.md)).
+- **Un pago de FAV se sabe con retraso, no al instante.** El catálogo y la
+  consulta de estado del pedido salen del FAV real; lo que **no existe de su
+  lado es el webhook**, que quitó en su 1.2.0 y no repuso en la 1.3.0. Entonces
+  una orden pasa a `CONFIRMADA` en la vuelta siguiente de la consulta periódica
+  (cada 15 min) y no cuando FAV acredita el pago. Nuestro receptor del webhook
+  existe y está probado, pero no tiene quién lo llame
+  ([ADR-009](adr/ADR-009-consumo-proveedor.md)).
 - **Los pedidos a FAV no tienen circuit breaker** (el catálogo sí): tienen timeout,
   reintentos y la vuelta cada 15 minutos, que ya acota la carga sobre FAV caído.
 - **Quedan en el índice de búsqueda las ofertas dadas de baja, con stock 0**, en

@@ -54,7 +54,7 @@ func con(status int, cuerpo string, headers ...string) func(http.ResponseWriter)
 	}
 }
 
-var pedido = fav.PedidoNuevo{ReferenciaExterna: "orden-1", NotificacionURL: "http://stock-service:8080/webhooks/fav",
+var pedido = fav.PedidoNuevo{ReferenciaExterna: "orden-1",
 	Items: []fav.ItemPedido{{VarianteID: "var-remera-basica-blanca-m", Cantidad: 3}}}
 
 func cliente(base string, esperas *[]time.Duration) *fav.Cliente {

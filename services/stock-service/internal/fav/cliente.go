@@ -83,9 +83,14 @@ type ItemPedido struct {
 }
 
 // PedidoNuevo es el cuerpo de POST /v1/pedidos.
+//
+// Hasta la 1.1.0 llevaba también `notificacionUrl`, con el receptor de nuestro
+// webhook. Su contrato **1.3.0 quitó ese campo** y su `PedidoNuevo` declara
+// `additionalProperties: false`, así que mandarlo hoy hace que el pedido sea
+// rechazado con `400 PEDIDO_INVALIDO`. Se saca: FAV ya no tiene webhook y el
+// estado se sigue con `GET /v1/pedidos/{pedidoId}` (ADR-009).
 type PedidoNuevo struct {
 	ReferenciaExterna string       `json:"referenciaExterna,omitempty"`
-	NotificacionURL   string       `json:"notificacionUrl,omitempty"`
 	Items             []ItemPedido `json:"items"`
 }
 

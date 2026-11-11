@@ -188,7 +188,7 @@ const urlAvisos = "http://stock-service:8080/webhooks/fav"
 func TestEnviarOrdenHaceElPedidoYPasaASolicitada(t *testing.T) {
 	repo := nuevoRepoPedidos(ordenFAV("o1"))
 	f := &favFalso{}
-	o, err := service.NuevoServicioPedidos(repo, f, urlAvisos).EnviarOrden(context.Background(), "o1")
+	o, err := service.NuevoServicioPedidos(repo, f).EnviarOrden(context.Background(), "o1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestEnviarOrdenHaceElPedidoYPasaASolicitada(t *testing.T) {
 		t.Errorf("orden = %+v", o)
 	}
 	p := f.pedidos[0]
-	if f.claves[0] != "o1-1" || p.ReferenciaExterna != "o1" || p.NotificacionURL != urlAvisos ||
+	if f.claves[0] != "o1-1" || p.ReferenciaExterna != "o1" ||
 		len(p.Items) != 1 || p.Items[0] != (fav.ItemPedido{VarianteID: "var-remera-basica-blanca-m", Cantidad: 8}) {
 		t.Errorf("clave %q, pedido %+v; quiero o1-1, referencia o1, la variante sin el prefijo FAV- y 8 unidades", f.claves[0], p)
 	}
@@ -205,7 +205,7 @@ func TestEnviarOrdenHaceElPedidoYPasaASolicitada(t *testing.T) {
 func TestEnviarOrdenFAVCaidoReintentaConLaMismaClave(t *testing.T) {
 	repo := nuevoRepoPedidos(ordenFAV("o1"))
 	f := &favFalso{errCrear: []error{fav.ErrNoDisponible, nil}}
-	svc := service.NuevoServicioPedidos(repo, f, urlAvisos)
+	svc := service.NuevoServicioPedidos(repo, f)
 
 	o, err := svc.EnviarOrden(context.Background(), "o1")
 	var fallo *service.EnvioFallidoError
@@ -226,7 +226,7 @@ func TestEnviarOrdenFAVCaidoReintentaConLaMismaClave(t *testing.T) {
 func TestEnviarOrdenRechazadaUsaUnaClaveNuevaEnElIntentoSiguiente(t *testing.T) {
 	repo := nuevoRepoPedidos(ordenFAV("o1"))
 	f := &favFalso{errCrear: []error{fmt.Errorf("pedido: %w", fav.ErrStockInsuficiente), nil}}
-	svc := service.NuevoServicioPedidos(repo, f, urlAvisos)
+	svc := service.NuevoServicioPedidos(repo, f)
 
 	_, err := svc.EnviarOrden(context.Background(), "o1")
 	var fallo *service.EnvioFallidoError
@@ -249,7 +249,7 @@ func TestEnviarOrdenRechazaLoQueNoCorresponde(t *testing.T) {
 	grande.Cantidad = 11
 	repo := nuevoRepoPedidos(solar, ya, grande)
 	f := &favFalso{}
-	svc := service.NuevoServicioPedidos(repo, f, urlAvisos)
+	svc := service.NuevoServicioPedidos(repo, f)
 
 	if _, err := svc.EnviarOrden(context.Background(), "o2"); !errors.Is(err, service.ErrOrdenNoEsDeFAV) {
 		t.Errorf("SKU solar: err = %v; quiero ErrOrdenNoEsDeFAV", err)
@@ -272,7 +272,7 @@ func TestEnviarPendientesSoloLasDeFAVEnBorrador(t *testing.T) {
 	solar := repository.Orden{ID: "o2", SKU: "PROT-DC-1000V", Cantidad: 16, Estado: service.EstadoBorrador}
 	repo := nuevoRepoPedidos(ordenFAV("o1"), solar)
 	f := &favFalso{}
-	res, err := service.NuevoServicioPedidos(repo, f, urlAvisos).EnviarPendientes(context.Background())
+	res, err := service.NuevoServicioPedidos(repo, f).EnviarPendientes(context.Background())
 	if err != nil || res.Enviadas != 1 || res.Fallidas != 0 || len(f.claves) != 1 {
 		t.Errorf("res = %+v, err = %v, llamadas %d; quiero 1 enviada", res, err, len(f.claves))
 	}
@@ -283,7 +283,7 @@ func enviada(t *testing.T, f *favFalso) (*repoPedidosFalso, *service.ServicioPed
 	t.Helper()
 	repo := nuevoRepoPedidos(ordenFAV("o1"))
 	repo.stock["FAV-var-remera-basica-blanca-m"] = 2
-	svc := sincronico(service.NuevoServicioPedidos(repo, f, urlAvisos))
+	svc := sincronico(service.NuevoServicioPedidos(repo, f))
 	o, err := svc.EnviarOrden(context.Background(), "o1")
 	if err != nil {
 		t.Fatal(err)
