@@ -172,6 +172,16 @@ series completas antes y después están en
 
 ### 4.6 Apagar FAV (45 s)
 
+> **Ojo:** desde el 11/11 el sistema le habla al **FAV real**, así que poner el mock
+> en `caido` **no hace nada**. Para este paso hay dos caminos:
+>
+> - **El limpio:** apuntar `FAV_URL` al mock antes de la demo (dejarlo vacío en el
+>   `.env`) y usar los comandos de abajo. Se pierde mostrar el consumo real.
+> - **El que muestra las dos cosas:** dejar el FAV real y cortarle la red al
+>   contenedor en el momento:
+>   `docker network disconnect arq-soft-proveedores_interna arq-soft-proveedores-import-service-1`
+>   y reconectarlo después. El efecto es el mismo: `import-service` no llega a FAV.
+
 ```bash
 curl -s -X POST http://localhost:8090/_mock/modo -H "Content-Type: application/json" -d '{"modo":"caido"}'
 curl -s "http://localhost:8080/api/v1/proveedores/recomendados?producto=FAV-var-remera-basica-blanca-m&cantidad=5" -H "X-API-Key: clave-de-desarrollo"

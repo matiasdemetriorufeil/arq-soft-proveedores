@@ -49,7 +49,7 @@ Cada uno actualiza su fila cuando termina.
 
 ### Entrega 3 — viernes 6/11 (presentación de los profes)
 
-- [x] Consumo **real** de FAV (ya no diseñado): catálogo en el ranking y pedidos de reposición. **Contra el mock que cumple su OpenAPI v1.1.0**, porque FAV nunca publicó su URL; el test de contrato pasa igual (era el plan B escrito en *Riesgos*)
+- [x] Consumo **real** de FAV: el 11/11 publicó su URL y el catálogo sale de su API desplegada, con el stock de su `GET /v1/disponibilidad`. Hasta ese día corrió contra el mock, que era el plan B escrito en *Riesgos*. **Los pedidos quedaron a medias y no por nosotros:** su contrato 1.2.0 quitó la consulta de estado y el webhook, así que la orden se cierra a mano ([ADR-009](adr/ADR-009-consumo-proveedor.md))
 - [x] Capacidad propia **en la nube con URL pública**: <http://20.226.84.78/>, los 14 contenedores en una VM de Azure (11/11)
 - [x] Caché **medida** antes y después ([ADR-007](adr/ADR-007-cache.md), series en `tests/carga/resultados/2026-11-06-*`)
 - [x] Test de carga corrido de nuevo con caché y con el pool del gateway. **Contra la nube no**: la VM se creó el 11/11, después del congelamiento, y una corrida de k6 contra 2 vCPU mediría la VM, no la arquitectura

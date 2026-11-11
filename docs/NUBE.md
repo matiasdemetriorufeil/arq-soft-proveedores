@@ -15,7 +15,7 @@ Cualquier proveedor sirve. Lo que hace falta:
 | Sistema | Ubuntu 24.04 LTS | el script de instalación usa `apt` vía `get.docker.com` |
 | Tamaño | 2 vCPU y 4 GB de RAM como mínimo | son 14 contenedores; MongoDB, RabbitMQ y Grafana son los que más memoria piden |
 | Disco | 20 GB | imágenes, volúmenes y la caché de build de Go |
-| Puertos de entrada | **22** (SSH), **80** (HTTP) y **8081** (webhook de FAV) | nada más: las consolas van por el túnel SSH. El 8081 es donde FAV nos avisa de los pedidos, directo a `stock-service` y no por el gateway ([ADR-009](adr/ADR-009-consumo-proveedor.md)); si no se usa el FAV real, no hace falta abrirlo |
+| Puertos de entrada | **22** (SSH) y **80** (HTTP) | nada más: las consolas van por el túnel SSH. El 8081 del webhook de FAV **se cerró el 11/11**: su contrato 1.2.0 no tiene webhook, así que no había quien lo llamara, y abrirlo dejaba `/api/v1/stock/` accesible sin el límite de tráfico del gateway |
 
 Opciones que no cuestan nada durante la cursada: **Oracle Cloud Free Tier** (VM Ampere A1, hasta 4 vCPU y 24 GB sin cargo), **Google Cloud** (USD 300 de crédito inicial, `e2-medium`) o **Azure for Students** (USD 100 sin tarjeta). En AWS una `t3.medium` sale cerca de USD 30 por mes y la capa gratuita (`t3.micro`, 1 GB) no alcanza.
 
@@ -82,11 +82,10 @@ sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-En el firewall o grupo de seguridad del proveedor hay que abrir el puerto 80, y el 8081 si se conecta el FAV real. En Oracle Cloud además hay que abrirlos en el firewall de la propia VM:
+En el firewall o grupo de seguridad del proveedor hay que abrir el puerto 80. En Oracle Cloud además hay que abrirlo en el firewall de la propia VM:
 
 ```bash
 sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
-sudo iptables -I INPUT -p tcp --dport 8081 -j ACCEPT   # solo con el FAV real
 ```
 
 ### Si no sale ninguna VM: túnel (respaldo, NO es la nube)
@@ -162,4 +161,4 @@ Con el túnel abierto: Grafana en <http://localhost:3000> (usuario `admin`, cont
 ## Pendiente
 
 - **HTTPS.** La URL es `http://`. Para HTTPS hace falta un dominio (por ejemplo uno gratis de DuckDNS) y un proxy con certificado automático (Caddy) delante del gateway. No lo pide la consigna; queda como deuda en `ARCHITECTURE.md`.
-- **El webhook de FAV: el puerto ya está, falta la URL.** El override publica `stock-service` en `PUERTO_WEBHOOK_FAV` (8081 por defecto), así que FAV puede llegar a `/webhooks/fav` **sin pasar por el gateway** ([ADR-009](adr/ADR-009-consumo-proveedor.md)). Cuando la VM exista hay que poner su URL en `FAV_NOTIFICACION_URL` y pasársela a FAV: la hoja con todo lo que necesitan está en [`contracts/para-fav.md`](contracts/para-fav.md). Abrir ese puerto también deja accesible `/api/v1/stock/...` por fuera del gateway —sigue detrás de su clave de API, pero sin el límite de tráfico—; está anotado en `ARCHITECTURE.md`.
+- **El webhook de FAV quedó cerrado, y es correcto.** Se abrió el 10/11 y se cerró el 11/11: el contrato **1.2.0 de FAV no tiene webhook**, así que no hay quien llame a esa ruta, y tener el puerto abierto dejaba `/api/v1/stock/...` accesible por fuera del gateway, sin su límite de tráfico. Para reabrirlo, si FAV alguna vez lo publica: descomentar las tres líneas de `stock-service` en `docker-compose.nube.yml`, abrir el puerto en el grupo de seguridad y poner `FAV_NOTIFICACION_URL` en el `.env`. La especificación de lo que verificamos está en [`contracts/para-fav.md`](contracts/para-fav.md).

@@ -314,12 +314,19 @@ grupal pide actualizar.
   reservar. Alcanza para mostrar el flujo completo; no tiene manejo de sesión más
   allá del JWT en memoria, ni vistas de administración (órdenes de reposición,
   estado de la importación), que se operan por API.
-- **La integración con FAV es contra nuestro mock.** El catálogo se consume con
-  test de contrato contra su OpenAPI v1.1.0, igual que los pedidos y el webhook
-  ([ADR-009](adr/ADR-009-consumo-proveedor.md)), pero FAV todavía no publicó su
-  URL. Con el FAV real, el webhook necesita una URL pública que llegue a
-  `stock-service` sin pasar por el gateway. Los pedidos no tienen circuit breaker
-  (el catálogo sí).
+- **Un pedido a FAV no se puede cerrar solo.** El catálogo se consume del FAV real
+  desde el 11/11, pero su contrato **1.2.0 quitó `GET /v1/pedidos/{pedidoId}` y el
+  webhook** que tenía la 1.1.0, que eran las dos formas de saber si el pago se
+  acreditó. FAV lo confirma por mail, fuera de la API. Entonces una orden enviada
+  se queda en `SOLICITADA` hasta que alguien la pasa a `CONFIRMADA` a mano con
+  `POST /api/v1/stock/ordenes/{id}/transiciones`. El código del seguimiento y del
+  receptor del webhook existe y está probado contra el mock, pero **contra el FAV
+  real no tiene a quién hablarle** ([ADR-009](adr/ADR-009-consumo-proveedor.md)).
+- **Los pedidos a FAV no tienen circuit breaker** (el catálogo sí): tienen timeout,
+  reintentos y la vuelta cada 15 minutos, que ya acota la carga sobre FAV caído.
+- **Quedan en el índice de búsqueda las ofertas dadas de baja, con stock 0**, en
+  lugar de desaparecer. No afectan el ranking —con 0 no se recomienda— pero se ven
+  al buscar. Son las 7 variantes que tenía el mock y el FAV real no tiene.
 - **La caché no tiene circuit breaker.** Con Redis caído cada lectura paga los
   50 ms completos del timeout del decorador antes de ir a PostgreSQL: medido en el
   Game Day, la latencia pasa de 6,5 ms a 56,6 ms sin dejar de responder correcto
@@ -359,12 +366,12 @@ grupal pide actualizar.
   la base. Con la base caída el sistema responde `503 NO_DISPONIBLE` a los 2 s, sin
   colgarse, contra un timeout de 3 s en el gateway: el margen es de 1 segundo
   ([ADR-010](adr/ADR-010-resiliencia.md)).
-- **En la nube, el puerto del webhook deja `stock-service` accesible por fuera del
-  gateway.** ADR-009 pide que FAV llegue a `/webhooks/fav` directo, así que el
-  override publica el puerto del servicio; con eso, `/api/v1/stock/...` también
-  queda alcanzable desde internet. Sigue detrás de su clave de API, pero **sin el
-  límite de tráfico del gateway**. Lo correcto sería un proxy que publique solo la
-  ruta del webhook; con un solo consumidor conocido se asume.
+- **El único puerto que sale a internet es el 80, del gateway.** El 8081 del webhook
+  de FAV se abrió el 10/11 y se cerró el 11/11, cuando su 1.2.0 mostró que no hay
+  webhook: un puerto abierto sin consumidor dejaba `/api/v1/stock/...` accesible por
+  fuera del gateway —detrás de su clave, pero **sin el límite de tráfico**— a cambio
+  de nada. Si FAV lo publica, lo correcto no es reabrir el puerto del servicio sino
+  un proxy que exponga **solo** la ruta del webhook.
 - **El `/readyz` del gateway sigue en `200` con PostgreSQL caído.** Es coherente
   —el gateway no tiene base y su trabajo es rutear— pero significa que un
   orquestador no lo sacaría de rotación aunque no pueda servir nada útil. Hoy lo

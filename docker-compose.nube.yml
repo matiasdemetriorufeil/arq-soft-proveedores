@@ -30,18 +30,20 @@ services:
   fav-mock:
     ports: !override
       - "127.0.0.1:8090:8090"
-  # La única cosa, además del gateway, que tiene que salir a internet: el
-  # receptor del webhook de FAV. ADR-009 pide que FAV llegue a stock-service
-  # directo y no por el gateway, así que el servicio necesita su propio puerto
-  # en la VM. Lo que queda expuesto:
+  # El puerto del webhook de FAV quedó CERRADO a propósito (11/11).
   #
-  #   POST /webhooks/fav       se autentica con la firma HMAC del aviso
-  #   /api/v1/stock/...        detrás de conAPIKey, pero sin el límite de
-  #                            tráfico del gateway: es la contra de abrir el
-  #                            puerto, y está anotada en ARCHITECTURE.md
-  #   /healthz, /readyz        sin datos
+  # Se abrió el 10/11 para que FAV pudiera llegar a POST /webhooks/fav directo y
+  # no por el gateway, como pide ADR-009. Al día siguiente FAV publicó su
+  # contrato 1.2.0 y ahí el webhook no existe: no hay quien llame a esa ruta.
   #
-  # A FAV se le pasa solo la URL del webhook (ver docs/contracts/para-fav.md).
-  stock-service:
-    ports:
-      - "${PUERTO_WEBHOOK_FAV:-8081}:8080"
+  # Abrir el puerto también dejaba accesible /api/v1/stock/... por fuera del
+  # gateway. Sigue detrás de su clave de API, pero SIN el límite de tráfico, así
+  # que un puerto abierto sin consumidor es solo superficie de ataque. Se cierra.
+  #
+  # Para reabrirlo, si FAV alguna vez publica el webhook: descomentar las tres
+  # líneas, abrir el puerto en el NSG y poner FAV_NOTIFICACION_URL en el .env.
+  # La especificación de lo que verificamos está en docs/contracts/para-fav.md.
+  #
+  # stock-service:
+  #   ports:
+  #     - "${PUERTO_WEBHOOK_FAV:-8081}:8080"
