@@ -1,0 +1,41 @@
+Respuestas de error reales, contra http://20.226.84.78 el 11/11/2026
+
+=== 1. SKU inexistente (el MODELO-550 de su propuesta no existe) ===
+{"type":"https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#PRODUCTO_NO_ENCONTRADO","title":"Producto no encontrado","status":404,"detail":"no existe un producto con SKU 'MODELO-550'","code":"PRODUCTO_NO_ENCONTRADO","instance":"/api/v1/proveedores/recomendados","request_id":"c6533a5b7837a5f37e84f4912a04ff62"}
+
+   -> http=404
+
+=== 2. Stock insuficiente: cantidad mayor que todo el stock ===
+[]
+
+   -> http=200
+
+=== 3a. Entrada invalida: falta el producto ===
+{"type":"https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#PARAMETRO_INVALIDO","title":"Parámetro inválido","status":400,"detail":"el parámetro 'producto' (SKU) es obligatorio","code":"PARAMETRO_INVALIDO","instance":"/api/v1/proveedores/recomendados","request_id":"a0fff57dfd15b87080e1ee2ce0778b65"}
+
+   -> http=400
+
+=== 3b. Entrada invalida: cantidad cero ===
+{"type":"https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#PARAMETRO_INVALIDO","title":"Parámetro inválido","status":400,"detail":"'cantidad' debe ser un entero mayor a 0","code":"PARAMETRO_INVALIDO","instance":"/api/v1/proveedores/recomendados","request_id":"6a7a9ff554dbb8e4370b0a49d889f373"}
+
+   -> http=400
+
+=== 3c. Entrada invalida: cantidad no numerica ===
+{"type":"https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#PARAMETRO_INVALIDO","title":"Parámetro inválido","status":400,"detail":"'cantidad' debe ser un entero mayor a 0","code":"PARAMETRO_INVALIDO","instance":"/api/v1/proveedores/recomendados","request_id":"57d07b13503ad745c1c0c863e9e54d15"}
+
+   -> http=400
+
+=== 4a. Sin credencial ===
+{"type":"https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#NO_AUTORIZADO","title":"No autorizado","status":401,"detail":"falta el header X-API-Key o no es válido","code":"NO_AUTORIZADO","instance":"/api/v1/proveedores/recomendados","request_id":"7ae8896cbaac13ea99eb6dfb63306df6"}
+
+   -> http=401
+
+=== 4b. Credencial invalida ===
+{"type":"https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#NO_AUTORIZADO","title":"No autorizado","status":401,"detail":"falta el header X-API-Key o no es válido","code":"NO_AUTORIZADO","instance":"/api/v1/proveedores/recomendados","request_id":"f29541a3d3b2cfa6002675bd65c854c7"}
+
+   -> http=401
+
+=== 5. Ruta inexistente ===
+{"type":"https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#RUTA_NO_ENCONTRADA","title":"Ruta no encontrada","status":404,"detail":"el gateway no expone esta ruta","code":"RUTA_NO_ENCONTRADA","instance":"/api/v1/cotizaciones","request_id":"91d3c6bc8616dcce028581d6930d18e0"}
+
+   -> http=404

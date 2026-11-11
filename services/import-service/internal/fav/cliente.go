@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -81,28 +82,20 @@ type Resultado struct {
 // veces ante timeout, error de red, 429, 500 o 503, con espera creciente (o la
 // que pida Retry-After). Es un GET sin efectos: reintentarlo es seguro.
 func (c *Cliente) ListarProductos(ctx context.Context, correlationID string) (Resultado, error) {
-	var ultimo error
-	for intento := 1; intento <= 1+ReintentosMaximos; intento++ {
-		res, espera, err := c.unIntento(ctx, correlationID)
-		if err == nil {
-			res.Intentos = intento
-			return res, nil
+	var res Resultado
+	err := c.conReintentos(ctx, func(intento int) (time.Duration, error) {
+		r, espera, err := c.unIntento(ctx, correlationID)
+		if err != nil {
+			return espera, err
 		}
-		if !esReintentable(err) {
-			return Resultado{}, err
-		}
-		ultimo = err
-		if intento > ReintentosMaximos {
-			break
-		}
-		if espera == 0 {
-			espera = time.Duration(1<<(intento-1)) * 500 * time.Millisecond // 0,5 s, 1 s, 2 s
-		}
-		if err := c.dormir(ctx, espera); err != nil {
-			return Resultado{}, fmt.Errorf("%w: %v", ErrNoDisponible, err)
-		}
+		r.Intentos = intento
+		res = r
+		return 0, nil
+	})
+	if err != nil {
+		return Resultado{}, err
 	}
-	return Resultado{}, fmt.Errorf("%w: %v", ErrNoDisponible, ultimo)
+	return res, nil
 }
 
 type errReintentable struct{ causa error }
@@ -115,13 +108,17 @@ func esReintentable(err error) bool {
 	return errors.As(err, &r)
 }
 
-func (c *Cliente) unIntento(ctx context.Context, correlationID string) (Resultado, time.Duration, error) {
+// unIntentoRuta hace un GET y traduce lo que todas las operaciones interpretan
+// igual: el 401, los status reintentables y la lectura del cuerpo. El 200 y los
+// demás status vuelven tal cual, porque cada operación los lee distinto (el
+// catálogo valida su esquema; la disponibilidad trata el 404 como "apagada").
+func (c *Cliente) unIntentoRuta(ctx context.Context, ruta, correlationID string) (int, []byte, string, time.Duration, error) {
 	ctx, cancel := context.WithTimeout(ctx, TimeoutPorIntento)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/v1/productos", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+ruta, nil)
 	if err != nil {
-		return Resultado{}, 0, err
+		return 0, nil, "", 0, err
 	}
 	req.Header.Set("X-API-Key", c.clave)
 	req.Header.Set("Accept", "application/json")
@@ -132,34 +129,121 @@ func (c *Cliente) unIntento(ctx context.Context, correlationID string) (Resultad
 	resp, err := c.http.Do(req)
 	if err != nil {
 		if ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled) {
-			return Resultado{}, 0, err
+			return 0, nil, "", 0, err
 		}
-		return Resultado{}, 0, errReintentable{fmt.Errorf("llamar a FAV: %w", err)}
+		return 0, nil, "", 0, errReintentable{fmt.Errorf("llamar a FAV: %w", err)}
 	}
 	defer resp.Body.Close()
 	cuerpo, err := io.ReadAll(io.LimitReader(resp.Body, tamanoMaximo))
 	if err != nil {
-		return Resultado{}, 0, errReintentable{fmt.Errorf("leer respuesta de FAV: %w", err)}
+		return 0, nil, "", 0, errReintentable{fmt.Errorf("leer respuesta de FAV: %w", err)}
 	}
 
 	switch resp.StatusCode {
-	case http.StatusOK:
-		var cat Catalogo
-		if err := json.Unmarshal(cuerpo, &cat); err != nil {
-			return Resultado{}, 0, fmt.Errorf("%w: %v", ErrRespuestaInvalida, err)
-		}
-		if err := validar(cat); err != nil {
-			return Resultado{}, 0, err
-		}
-		return Resultado{Catalogo: cat, Crudo: cuerpo, CorrelationID: resp.Header.Get("X-Correlation-Id")}, 0, nil
 	case http.StatusUnauthorized:
-		return Resultado{}, 0, ErrNoAutenticado
+		return resp.StatusCode, cuerpo, "", 0, ErrNoAutenticado
 	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusServiceUnavailable:
-		return Resultado{}, retryAfter(resp.Header.Get("Retry-After")),
+		return resp.StatusCode, cuerpo, "", retryAfter(resp.Header.Get("Retry-After")),
 			errReintentable{fmt.Errorf("FAV respondió %d %s", resp.StatusCode, codigoDe(cuerpo))}
-	default:
-		return Resultado{}, 0, fmt.Errorf("%w: status %d %s", ErrRespuestaInvalida, resp.StatusCode, codigoDe(cuerpo))
 	}
+	return resp.StatusCode, cuerpo, resp.Header.Get("X-Correlation-Id"), 0, nil
+}
+
+// conReintentos corre intento hasta ReintentosMaximos veces más ante errores
+// reintentables, con espera creciente o la que pida Retry-After.
+func (c *Cliente) conReintentos(ctx context.Context, intento func(int) (time.Duration, error)) error {
+	var ultimo error
+	for n := 1; n <= 1+ReintentosMaximos; n++ {
+		espera, err := intento(n)
+		if err == nil {
+			return nil
+		}
+		if !esReintentable(err) {
+			return err
+		}
+		ultimo = err
+		if n > ReintentosMaximos {
+			break
+		}
+		if espera == 0 {
+			espera = time.Duration(1<<(n-1)) * 500 * time.Millisecond // 0,5 s, 1 s, 2 s
+		}
+		if err := c.dormir(ctx, espera); err != nil {
+			return fmt.Errorf("%w: %v", ErrNoDisponible, err)
+		}
+	}
+	return fmt.Errorf("%w: %v", ErrNoDisponible, ultimo)
+}
+
+func (c *Cliente) unIntento(ctx context.Context, correlationID string) (Resultado, time.Duration, error) {
+	status, cuerpo, corr, espera, err := c.unIntentoRuta(ctx, "/v1/productos", correlationID)
+	if err != nil {
+		return Resultado{}, espera, err
+	}
+	if status != http.StatusOK {
+		return Resultado{}, 0, fmt.Errorf("%w: status %d %s", ErrRespuestaInvalida, status, codigoDe(cuerpo))
+	}
+	var cat Catalogo
+	if err := json.Unmarshal(cuerpo, &cat); err != nil {
+		return Resultado{}, 0, fmt.Errorf("%w: %v", ErrRespuestaInvalida, err)
+	}
+	if err := validar(cat); err != nil {
+		return Resultado{}, 0, err
+	}
+	return Resultado{Catalogo: cat, Crudo: cuerpo, CorrelationID: corr}, 0, nil
+}
+
+// MaxVariantesPorConsulta es el tope de ids por llamada que fija el contrato de
+// FAV para /v1/disponibilidad (de 1 a 200). Pasarse devuelve 400.
+const MaxVariantesPorConsulta = 200
+
+// ErrDisponibilidadApagada: FAV respondió 404 a /v1/disponibilidad. Su contrato
+// dice que puede apagar esa operación temporalmente, así que **no es una
+// caída**: quien llama sigue con el tope fijo por variante.
+var ErrDisponibilidadApagada = errors.New("FAV no expone GET /v1/disponibilidad (404)")
+
+// ConsultarDisponibilidad pide el stock real de cada variante y devuelve un
+// mapa varianteID → unidades. Parte el pedido en tandas de
+// MaxVariantesPorConsulta, porque el contrato no acepta más.
+//
+// Una variante que FAV no devuelve queda en 0, como dice su contrato: una
+// variante inexistente o sin stock se informa con 0 y no con un error.
+func (c *Cliente) ConsultarDisponibilidad(ctx context.Context, variantes []string, correlationID string) (map[string]int, error) {
+	stock := make(map[string]int, len(variantes))
+	for _, v := range variantes {
+		stock[v] = 0
+	}
+	for i := 0; i < len(variantes); i += MaxVariantesPorConsulta {
+		tanda := variantes[i:min(i+MaxVariantesPorConsulta, len(variantes))]
+		ruta := "/v1/disponibilidad?variantes=" + url.QueryEscape(strings.Join(tanda, ","))
+		err := c.conReintentos(ctx, func(int) (time.Duration, error) {
+			status, cuerpo, _, espera, err := c.unIntentoRuta(ctx, ruta, correlationID)
+			if err != nil {
+				return espera, err
+			}
+			switch status {
+			case http.StatusOK:
+				var d Disponibilidad
+				if err := json.Unmarshal(cuerpo, &d); err != nil {
+					return 0, fmt.Errorf("%w: %v", ErrRespuestaInvalida, err)
+				}
+				for _, it := range d.Items {
+					if it.Disponible > 0 {
+						stock[it.VarianteID] = it.Disponible
+					}
+				}
+				return 0, nil
+			case http.StatusNotFound:
+				return 0, ErrDisponibilidadApagada
+			default:
+				return 0, fmt.Errorf("%w: status %d %s", ErrRespuestaInvalida, status, codigoDe(cuerpo))
+			}
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return stock, nil
 }
 
 // validar revisa los campos obligatorios del contrato. Un catálogo que no los

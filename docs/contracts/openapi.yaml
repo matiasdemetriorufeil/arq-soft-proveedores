@@ -28,9 +28,53 @@ info:
     redondeado a 2 decimales. El descuento aplica solo si
     `cantidad ≥ cantidad_minima_descuento` de la oferta. Se excluyen las ofertas
     con `stock_disponible < cantidad`.
+
+    ## Unidades y monedas
+
+    Estaban implícitas hasta ahora y se declaran acá sin cambiar nada del
+    comportamiento (es documentación, no una versión nueva del contrato):
+
+    - **Moneda: ARS (peso argentino)** para `precio_unitario`, `flete` y
+      `costo_total`. El contrato no lleva campo de moneda: **todos** los
+      importes de esta capacidad son ARS. Si algún día hubiera más de una
+      moneda, haría falta una versión nueva.
+    - **Importes: número decimal con 2 decimales**, no centavos enteros. En la
+      base son `NUMERIC(14,2)` (exactos); en el JSON viajan como número, así
+      que un consumidor que necesite aritmética exacta debería leerlos como
+      decimal y no como `float` binario. Que no sean centavos enteros está
+      anotado como deuda técnica en `docs/ARCHITECTURE.md`.
+    - **`cantidad` y `stock_disponible`: unidades enteras** del producto, en la
+      unidad que declara el catálogo (`unidad`, `metro`, `par` o `kit` según el
+      SKU). Para los paneles la unidad es siempre `unidad`.
+    - **`descuento_pct`: porcentaje** (0 a 100), no fracción.
+
+    ## Qué NO hace esta operación
+
+    Es un `GET` de solo lectura: **no compra, no reserva y no descuenta
+    inventario**. Consultar el mismo SKU mil veces no cambia ningún stock. La
+    reserva es otra operación, de `stock-service`, y no es parte de esta
+    capacidad.
+
+    ## Frescura de los datos y vigencia
+
+    La respuesta es una **foto del momento**, sin precio congelado:
+
+    - Las ofertas se cachean **60 segundos** (Redis). Un cambio de precio puede
+      tardar hasta ese tiempo en verse.
+    - Las ofertas del proveedor externo (catálogo de ropa) se re-importan cada
+      **5 minutos**.
+    - El precio puede cambiar entre dos llamadas sin aviso. No hay reserva de
+      precio ni identificador de cotización persistido: **si hace falta
+      correlacionar una respuesta con un log nuestro, se usa el header
+      `X-Request-Id`**, que viaja en toda respuesta (y como `request_id` en los
+      errores).
   license:
     name: Uso académico (Arquitectura de Software 2026, UCC)
 servers:
+  - url: http://20.226.84.78
+    description: >-
+      Desplegado (11/11/2026). VM en Azure, `brazilsouth`. Es **http**, no https:
+      no tenemos dominio, así que no hay certificado. Ver `docs/NUBE.md`.
   - url: http://localhost:8080
     description: Local, con `docker compose up` (puerto `PUERTO_GATEWAY`, por defecto 8080)
 tags:

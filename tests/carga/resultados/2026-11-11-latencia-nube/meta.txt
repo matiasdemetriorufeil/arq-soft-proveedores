@@ -1,0 +1,26 @@
+Latencia y errores de la capacidad, contra la instancia desplegada
+==================================================================
+
+Fecha:    11/11/2026
+Para:     docs/contracts/para-renewable-energy.md (hoja de integracion del
+          grupo Renewable Energy)
+Destino:  http://20.226.84.78  (VM en Azure brazilsouth, contrato 1.1.0)
+Origen:   Cordoba, Argentina. Los tiempos INCLUYEN ida y vuelta de red: es lo
+          que ve el consumidor, no latencia de servidor. El piso de ~100 ms es
+          el RTT Cordoba-Sao Paulo.
+
+Archivos
+--------
+medicion.txt   Cache frio (176 ms), cache caliente (mediana 107 ms) y 40
+               llamadas sobre los 5 modelos de panel: p50 104 / p95 128 ms.
+errores.txt    Las respuestas de error reales, una por caso: SKU inexistente,
+               stock insuficiente (200 con []), entrada invalida en tres
+               variantes, sin credencial, credencial invalida y ruta
+               inexistente.
+
+Lo que NO esta medido aca
+-------------------------
+- 502 con las dos replicas caidas y 504 por respuesta lenta: estan en ADR-010
+  como implementados, pero no se ejercitaron. No se dan por verificados.
+- El 429 si esta medido, pero contra la nube se hizo aparte: 300 llamadas
+  concurrentes dieron 127 de 200 y 173 de 429, todas con Retry-After: 1.

@@ -1,7 +1,7 @@
 # ADR-009 — Consumo del proveedor: catálogo y pedidos de FAV (D9)
 
-- **Estado:** **aceptado e implementado** para el catálogo (`import-service`, 03/11) y para los pedidos y el webhook (`stock-service`, 06/11). Los dos están probados contra el contrato v1.1.0 y contra un mock que lo cumple. Falta que FAV defina su URL desplegada y cómo entrega la clave y el secreto de avisos (marcados **[?]** en su contrato): con `FAV_URL`, `FAV_API_KEY` y `FAV_SECRETO_AVISOS` en `.env`, los dos servicios dejan el mock y apuntan al real sin cambiar código. Lo que todavía no está hecho de esta decisión está en [Pendiente](#pendiente).
-- **Fecha:** 2026-10-23 · actualizado 2026-11-06
+- **Estado:** **aceptado e implementado para el catálogo**, que funciona contra el FAV real. **Parcialmente invalidado para los pedidos**: el 11/11 FAV entregó su URL y su contrato **1.2.0**, que **quitó** `GET /v1/pedidos/{pedidoId}` y el webhook `pedidoActualizado`, las dos piezas sobre las que esta decisión apoyaba la confirmación de un pedido. El código existe y está probado, pero contra una versión del contrato que FAV ya no publica. Ver [Lo que rompió la 1.2.0 de FAV](#lo-que-rompió-la-120-de-fav).
+- **Fecha:** 2026-10-23 · actualizado 2026-11-11
 - **Entrega:** 2 (23/10) y 3 (06/11)
 - **Decisión de la consigna:** D9. Incorporación de la capacidad externa, adaptación al contrato y comportamiento ante errores, cambios o indisponibilidad.
 
@@ -47,7 +47,7 @@ Para comprar:
   | `precio_unitario` | `variante.precio` | ya trae la promoción aplicada |
   | `descuento_pct` | 0 | el contrato no tiene descuento por volumen |
   | `flete` | **[propuesta]** valor fijo configurable, hasta acordarlo con FAV | el contrato no lo informa; la entrega se coordina por contacto |
-  | `stock_disponible` | **10** (el máximo por variante de un pedido) | el contrato no informa stock: la oferta vale hasta lo que se puede pedir de una vez, y el stock real lo confirma el pedido |
+  | `stock_disponible` | el real de `GET /v1/disponibilidad` desde el 11/11; antes, **10** fijo (el máximo por variante de un pedido) | el catálogo no informa stock. Hasta la 1.2.0 de FAV la oferta valía hasta lo que se podía pedir de una vez; ahora sale el dato real y el tope quedó de respaldo |
 
 - **Frecuencia:** cada **5 minutos** (`INTERVALO_SINCRONIZACION`) y al arrancar. Se compara con lo último que se avisó y solo se publican los cambios: altas, modificaciones y bajas, con una `secuencia` que crece ([`eventos.md`](../contracts/eventos.md)).
 - **Si FAV no responde:** se conserva la **última importación válida**. Si la última sincronización exitosa tiene **más de 24 horas**, `import-service` publica un evento con todas sus ofertas como bajas (`motivo: catalogo_vencido`), **una sola vez**; cuando FAV vuelve, se reenvía el catálogo completo.
@@ -146,6 +146,44 @@ Cuando esté integrado de punta a punta:
 - **Caída simulada en el Game Day:** con FAV cortado, la capacidad publicada sigue en `200`, el ranking muestra sus últimas ofertas válidas y las órdenes nuevas esperan en `BORRADOR`.
 - **Test de contrato** en verde contra la v1.1.0 y contra su mock.
 
+## Lo que rompió la 1.2.0 de FAV
+
+El 11/11 FAV entregó su URL desplegada (`https://fav-ucc.chilecentral.cloudapp.azure.com`, HTTPS con certificado válido), su clave y el contrato **1.2.0** del 09/11. Comparando los dos archivos en [`consumidos/`](../contracts/consumidos/README.md):
+
+| Operación | 1.1.0 | 1.2.0 |
+|---|---|---|
+| `GET /v1/productos` | sí | sí |
+| `POST /v1/pedidos` | sí | sí |
+| `GET /v1/pedidos/{pedidoId}` | **sí** | **NO** |
+| Webhook `pedidoActualizado` firmado con HMAC | **sí** | **NO** |
+| `GET /v1/disponibilidad` | no | **sí** (nuevo) |
+
+FAV la publica como compatible. **No lo es**: la sección 5 de su propio contrato define quitar una operación como cambio **incompatible**, que pediría `/v2/`. Su README lo dice sin ambigüedad: *"Consultar el estado de un pedido no está en la v1"*, y lo lista como agregado posible a futuro.
+
+**Lo que sigue en pie:** el catálogo. Nuestro modelo coincide campo por campo con la respuesta real, verificado el 11/11 contra la URL desplegada: 5 productos y 19 variantes. **No hace falta tocar código para importar del FAV real.**
+
+**Lo que queda sin apoyo en el contrato vigente**, aunque el código exista y esté probado:
+
+1. **La consulta de respaldo del estado del pedido** (`internal/fav.ConsultarPedido`, usada en `internal/service/pedidos.go`). Contra el FAV real responde `404 NO_ENCONTRADO`.
+2. **El receptor del webhook** (`POST /webhooks/fav`, firma HMAC, deduplicación por `eventoId`). FAV no tiene webhook: nunca va a llamarlo.
+3. **Por lo tanto, el paso `SOLICITADA → CONFIRMADA` no se puede completar automáticamente.** FAV confirma el pago por fuera de la API, por mail (su §7). Con la 1.2.0, una orden enviada se queda en `SOLICITADA` hasta que alguien la transicione a mano con `POST /api/v1/stock/ordenes/{id}/transiciones`.
+4. **El secreto de firma de avisos** ya no aplica: no hay avisos que firmar.
+
+**Lo que la 1.2.0 habilita, y ya está implementado (11/11):** `GET /v1/disponibilidad` devuelve el stock real por variante. Las ofertas de FAV entraban al ranking con un **stock fijo de 10 por variante**, que era la razón principal por la que un pedido podía terminar en `409`. Ahora el stock sale del dato real.
+
+- `import-service` pide la disponibilidad de todas las variantes del catálogo en la misma vuelta de sincronización, **troceando en tandas de 200**, que es el tope del contrato.
+- Una variante que FAV no devuelve queda en **0, no en el tope**: su contrato informa con 0 tanto la inexistente como la sin stock, y suponer 10 unidades de algo que FAV no reconoce es justamente lo que producía el `409`.
+- Una oferta con 0 **no se descarta**: se publica con 0 y el comparador la deja afuera del ranking por no alcanzar la cantidad pedida.
+- **Si la consulta falla, la importación sigue** con el tope fijo. Importa porque su README avisa que FAV puede **apagar** la operación: ese `404` se trata como `ErrDisponibilidadApagada`, que no es una caída.
+- **Hueco de su contrato:** el README documenta ese `404` pero el OpenAPI 1.2.0 **no lo declara** para esa ruta. Lo manejamos igual, y queda un test que documenta la diferencia.
+
+**Verificado contra el FAV real** (`TestContratoDisponibilidadContraElFAVReal`): 19 variantes con stock entre 0 y 9, **6 de ellas en 0**. Antes esas 6 entraban al ranking con stock 10.
+
+**Lo que no se decidió todavía**, porque es una decisión de grupo y no técnica:
+
+- ¿Se apunta `FAV_URL` al FAV real para la presentación? El catálogo funciona, pero **cambian los SKU** del ranking (`FAV-var-remera-*` → `FAV-var-buzo-lino-hh-*`, etc.), y eso toca los ejemplos de `README.md`, `DEMO-ENTREGA-3.md` y `para-renewable-energy.md`.
+- ¿Se pide a FAV que publique la consulta de estado como `1.3.0`, o se acepta el cierre manual de la orden?
+
 ## Pendiente
 
 Partes de esta decisión que todavía no están en el código:
@@ -157,7 +195,7 @@ Partes de esta decisión que todavía no están en el código:
 
 ## Qué nos haría cambiar de idea
 
-- **Si FAV agrega disponibilidad al catálogo** (lo anuncia como posible agregado compatible), usarla como `stock_disponible` y dejar el tope de 10.
+- ~~**Si FAV agrega disponibilidad al catálogo**, usarla como `stock_disponible` y dejar el tope fijo.~~ **Pasó y está hecho** (11/11): la 1.2.0 trae `GET /v1/disponibilidad` y el stock del ranking ahora sale de ahí. El tope fijo quedó como respaldo.
 - **Si agrega paginación o un filtro por fecha de cambio**, pasar a una sincronización incremental.
 - **Si los pedidos terminan seguido en `409`**, la estimación de stock no sirve: consultar la disponibilidad antes de recomendar, o sacar a FAV del ranking para cantidades grandes.
 - **Si publica una `v2`**, migrar antes de la fecha de baja anunciada y registrar el cambio en un ADR que reemplace a este.

@@ -1,5 +1,21 @@
 # Lo que FAV necesita para conectarse a nosotros
 
+> ## ⚠️ Esta hoja quedó sin uso (11/11/2026)
+>
+> Se escribió el 10/11 contra el contrato **1.1.0** de FAV, que documentaba un webhook
+> `pedidoActualizado` firmado con HMAC. El 11/11 FAV entregó su contrato **1.2.0** y
+> **ahí el webhook no existe**: cero menciones en el OpenAPI y nada en su README, que
+> resuelve la confirmación del pago por fuera de la API, por mail.
+>
+> O sea: **FAV no nos va a avisar de nada, y nuestro receptor de `/webhooks/fav` nunca
+> va a ser llamado.** El puerto 8081 abierto en la VM tampoco hace falta.
+>
+> Se conserva por dos razones: la implementación existe y está probada (ocho avisos
+> firmados, todos con el código esperado), y si FAV alguna vez publica el webhook,
+> esta hoja es la especificación exacta de lo que verificamos. El detalle de qué
+> rompió la 1.2.0 está en
+> [ADR-009](../adr/ADR-009-consumo-proveedor.md#lo-que-rompió-la-120-de-fav).
+
 Hoja de entrega para el **grupo de ropa (FAV)**. Nosotros consumimos su catálogo y le
 hacemos pedidos de reposición; lo único que FAV necesita de nuestro lado es **dónde
 avisarnos cuando un pedido cambia de estado** y **cómo firmar ese aviso**.
