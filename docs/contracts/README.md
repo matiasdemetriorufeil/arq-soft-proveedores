@@ -10,7 +10,7 @@ en nuestras decisiones internas**. Con este archivo y el
 | **Consumidor asignado** | Grupo de paneles solares. |
 | **Versión vigente** | **v1** (contrato `1.0.0`). La versión viaja en la ruta: `/api/v1/...`. |
 | **Contrato formal** | [`openapi.yaml`](openapi.yaml) (OpenAPI 3.0.3). |
-| **Dónde está** | Por ahora, local con `docker compose up` (`http://localhost:8080`). La URL pública se agrega acá cuando la capacidad se despliegue en la nube. |
+| **Dónde está** | **<http://20.226.84.78/>** (desplegada en la nube, 11/11/2026). También se puede levantar en local con `docker compose up`, en `http://localhost:8080`. La clave de acceso se entrega por separado: no está en el repositorio. |
 
 ## En 30 segundos
 

@@ -13,15 +13,18 @@ No necesita clave de API nuestra: el aviso se autentica con la firma.
 > `eventoId` que no es UUID, cuerpo incompleto, cuerpo no JSON y header que no
 > coincide. Los ocho dieron el código que figura en la tabla de la sección 4.
 >
-> **Falta un solo dato: la URL**, que depende de la VM. Ver *Qué falta de nuestro
-> lado* al final.
+> **La URL ya existe y está abajo.** Lo único que falta es que FAV nos entregue su
+> URL, su clave y el secreto de firma (sección 5).
 
 ## 1. A dónde nos avisa
 
 ```
-POST http://<URL-PUBLICA>:8081/webhooks/fav
+POST http://20.226.84.78:8081/webhooks/fav
 Content-Type: application/json
 ```
+
+**Ya está escuchando** (desplegado el 11/11): un `POST` sin firma devuelve `401`,
+que es la señal de que el receptor está arriba y pidiendo la firma.
 
 Tres cosas importantes:
 
@@ -136,14 +139,13 @@ escrito contra su OpenAPI v1.1.0 y probado con tests de contrato.
 El secreto tiene que ser el mismo a los dos lados. Si FAV ya eligió uno, usamos el
 suyo; si no, proponemos uno nosotros.
 
-## 6. Qué falta de nuestro lado
+## 6. Estado
 
-**La URL pública.** La VM no está creada todavía: el override del compose, el script
-de instalación y la guía están en [`NUBE.md`](../NUBE.md), falta la máquina. Hasta que
-exista, `FAV_NOTIFICACION_URL` queda vacío y todo el circuito corre contra nuestro
-mock de FAV, que cumple su contrato.
+**De nuestro lado está todo.** El sistema está desplegado en
+<http://20.226.84.78/> con los 14 contenedores, y el receptor del webhook escucha en
+el puerto 8081.
 
-En cuanto la VM exista, el mensaje a FAV es una línea:
-
-> La URL del webhook es `http://<IP>:8081/webhooks/fav`. El formato de la firma y del
-> cuerpo son los que ya tenían; esta hoja los confirma.
+**Falta que FAV entregue los tres datos de la sección 5.** Hasta entonces el circuito
+corre contra nuestro mock, que cumple su OpenAPI v1.1.0, y los tests de contrato pasan
+igual. Cuando lleguen, se cargan en el `.env` de la VM y se reinicia: **no hay que
+cambiar código**.

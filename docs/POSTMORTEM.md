@@ -202,8 +202,9 @@ Para no dar por verificado lo que no se miró:
   orden abierta por producto impide rearmar el caso sin tocar la base a mano.
 - **Las tres alertas disparando.** La de "sin réplicas sanas" ya se verificó aparte
   (dispara en 48 s); las de p95 y tasa de errores no se ejercitaron acá.
-- **Nada en la nube**, porque no hay nube: la VM no está creada
-  ([`NUBE.md`](NUBE.md)).
+- **Nada en la nube.** El Game Day se corrió el 10/11 contra el stack local; la VM
+  se creó el 11/11 ([`NUBE.md`](NUBE.md)). Los escenarios son reproducibles ahí por
+  SSH, con los mismos comandos.
 
 ## Cómo repetirlo
 

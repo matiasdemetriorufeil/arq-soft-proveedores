@@ -14,7 +14,7 @@ Reparto del trabajo entre los 4 integrantes para llegar a la Entrega 3 y a la pr
 | 1 (Fede) | Infraestructura, mensajería e importación de FAV | ✅ Hecho (rama `feat/import-service`): compose con RabbitMQ, MongoDB, Redis, Meilisearch, `fav-mock` y base de stock; `pkg/mensajeria` y `docs/contracts/eventos.md`; `import-service` con test de contrato; ADR-014 y ADR-001, 003, 005, 009 y 010 actualizados. Falta: correr los tests de integración de MongoDB y `docker compose up` completo en una máquina con Docker |
 | 2 | Lectura rápida: caché y búsqueda en `proveedores-service` | ✅ Hecho (en `main` desde el PR #8, 06/11): consumidor del evento con DLQ y consumidor único, caché Redis, búsqueda en Meilisearch con reconstrucción y pool del gateway; ADR-006 y ADR-007 aceptados, ADR-005, 010 y 013 actualizados, con mediciones A, B y C en `tests/carga/resultados/2026-11-06-*`. La capacidad máxima con pool y caché no está medida: ninguna serie llegó al límite a 1 600 req/s |
 | 3 | `stock-service`: reserva, reposición y pedidos a FAV | ✅ Hecho (rama `feat/stock-service`): servicio en capas con su base, reserva sin sobreventa con test de concurrencia, reposición automática, pedidos a FAV con `Idempotency-Key` y webhook HMAC (estos dos los terminó el Integrante 1), ADR-004 nuevo y ADR-002, 009 y SPEC al día. Probado contra PostgreSQL real y de punta a punta contra el mock de FAV. Ruteado en el gateway por la parte 4 |
-| 4 (Santino) | Entrada, frontend, nube y operación | 🟡 Casi todo (rama `feat/frontend-nube`, sobre `feat/stock-service` y con `main` mergeado): login JWT, límite de tráfico con `429`, ruteo a `stock-service` y a la búsqueda, frontend, métricas, tablero, 3 alertas, CI, contrato 1.1.0 y despliegue preparado (`docs/NUBE.md`); ADR-008, 010, 011 y `ARCHITECTURE.md` al día. Falta: crear la VM y publicar la URL, y el Game Day |
+| 4 (Santino) | Entrada, frontend, nube y operación | 🟡 Casi todo (rama `feat/frontend-nube`, sobre `feat/stock-service` y con `main` mergeado): login JWT, límite de tráfico con `429`, ruteo a `stock-service` y a la búsqueda, frontend, métricas, tablero, 3 alertas, CI, contrato 1.1.0 y despliegue preparado (`docs/NUBE.md`); ADR-008, 010, 011 y `ARCHITECTURE.md` al día. ✅ Completo al 11/11: la VM está creada y la URL publicada (<http://20.226.84.78/>), y el Game Day está en [`POSTMORTEM.md`](POSTMORTEM.md) |
 
 Cada uno actualiza su fila cuando termina.
 
@@ -35,7 +35,7 @@ Cada uno actualiza su fila cuando termina.
 - Se cerró el **PR #7** (`feat/stock-service`): su contenido entró a `main` por el
   squash del PR #9, que salió de esa misma rama.
 
-**Lo único obligatorio que queda sin cumplir es la URL pública en la nube.**
+**Al 11/11 no queda ningún obligatorio sin cumplir.** La URL pública es <http://20.226.84.78/>. Lo único abierto es [ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md), que espera la confirmación de la cátedra.
 
 ## Antes de arrancar
 
@@ -50,9 +50,9 @@ Cada uno actualiza su fila cuando termina.
 ### Entrega 3 — viernes 6/11 (presentación de los profes)
 
 - [x] Consumo **real** de FAV (ya no diseñado): catálogo en el ranking y pedidos de reposición. **Contra el mock que cumple su OpenAPI v1.1.0**, porque FAV nunca publicó su URL; el test de contrato pasa igual (era el plan B escrito en *Riesgos*)
-- [ ] Capacidad propia **en la nube con URL pública** — falta crear la VM; el override, el script y la guía están ([`NUBE.md`](NUBE.md))
+- [x] Capacidad propia **en la nube con URL pública**: <http://20.226.84.78/>, los 14 contenedores en una VM de Azure (11/11)
 - [x] Caché **medida** antes y después ([ADR-007](adr/ADR-007-cache.md), series en `tests/carga/resultados/2026-11-06-*`)
-- [x] Test de carga corrido de nuevo con caché y con el pool del gateway. **Contra la nube no**, porque no hay nube
+- [x] Test de carga corrido de nuevo con caché y con el pool del gateway. **Contra la nube no**: la VM se creó el 11/11, después del congelamiento, y una corrida de k6 contra 2 vCPU mediría la VM, no la arquitectura
 - [x] Plan escrito ante la caída de cada dependencia ([ADR-010](adr/ADR-010-resiliencia.md) actualizado y [`POSTMORTEM.md`](POSTMORTEM.md) con el Game Day)
 - [x] Tag `entrega-3` y demo de 5 minutos ([`DEMO-ENTREGA-3.md`](DEMO-ENTREGA-3.md))
 
@@ -61,7 +61,7 @@ Cada uno actualiza su fila cuando termina.
 - [x] Frontend completo, desde el ingreso del usuario hasta la funcionalidad compartida (login → buscar → ranking → reservar, embebido en el gateway)
 - [x] Gateway con autenticación (API key y JWT), direccionamiento y **control de tráfico** (token bucket con `429`)
 - [x] Al menos **3 servicios** operativos: `proveedores-service`, `import-service` y `stock-service`
-- [ ] Capacidad propia en la nube con URL pública — **el único obligatorio que falta**
+- [x] Capacidad propia en la nube con URL pública: <http://20.226.84.78/>
 - [x] Capacidad del proveedor (FAV) incorporada al flujo principal: su catálogo entra al ranking y las reposiciones salen como pedidos
 - [x] **2 tipos de almacenamiento** en el flujo: PostgreSQL (`proveedores` y `stock`) y MongoDB (`import-service`)
 - [x] Caché en un flujo de lectura relevante, con medición antes y después ([ADR-007](adr/ADR-007-cache.md))

@@ -23,9 +23,8 @@ y la salida que se describe es la que dieron de verdad.
 - [x] Métricas, tablero y tres alertas
 - [x] CI que corre los tests en cada push (10 jobs, verde)
 - [x] `docker compose up` levanta los 14 contenedores, sin secretos en el repo
-- [ ] **Capacidad propia en la nube con URL pública** — es lo único obligatorio que
-      falta: el override, el script y la guía están ([`NUBE.md`](NUBE.md)), falta
-      crear la VM
+- [x] **Capacidad propia en la nube con URL pública**: <http://20.226.84.78/>, con
+      los 14 contenedores en una VM de Azure ([`NUBE.md`](NUBE.md))
 
 **Decisiones (ADR)**
 
@@ -63,6 +62,19 @@ Si después del tag hay que corregir algo, se crea `entrega-3.1`; no se mueve un
 ya publicado.
 
 ## 3. Antes de entrar (15 minutos antes)
+
+> **Se puede hacer toda la demo contra la nube**, cambiando `http://localhost:8080`
+> por `http://20.226.84.78` en todos los comandos de abajo. Es la versión más fuerte:
+> se ve que está desplegado de verdad y no en la notebook. Dos excepciones que **sí**
+> necesitan el local:
+>
+> - **4.5 (la caché)** y **4.6 (apagar FAV)**: hay que parar contenedores y tocar el
+>   mock, y eso en la VM se hace por SSH. En vivo es más prolijo en local.
+> - Las consolas (Grafana, Jaeger) no se publican en la nube a propósito.
+>
+> Lo práctico: **abrir la URL pública al principio** para mostrar que existe, y hacer
+> el resto en local. Las credenciales de la nube no están en el repo; están en el
+> `.env` de la VM.
 
 ```bash
 git clone https://github.com/matiasdemetriorufeil/arq-soft-proveedores.git demo-e3
@@ -181,9 +193,10 @@ fallida.
 
 Dos cosas que es mejor poner sobre la mesa antes de que las encuentren:
 
-1. **No hay URL pública.** La VM no se creó. Está el override del compose, el script
-   de instalación y la guía; falta la máquina. Es el único ítem obligatorio sin
-   cumplir.
+1. **La nube corre el sistema completo, pero se desplegó el 11/11**, después del
+   congelamiento del 6/11. La URL es <http://20.226.84.78/>. Sin HTTPS, porque no
+   hay dominio, y el test de carga no se repitió contra la VM: con 2 vCPU mediría la
+   máquina, no la arquitectura.
 2. **FAV nunca publicó su URL.** Todo el consumo está probado contra `fav-mock`, que
    cumple su OpenAPI v1.1.0, con tests de contrato sobre el catálogo y los pedidos.
    Era el plan B escrito en el plan de la entrega. Con `FAV_URL` en el `.env` se

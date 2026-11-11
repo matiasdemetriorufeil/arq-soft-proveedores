@@ -2,7 +2,7 @@
 
 Cómo se sube el sistema a una VM con URL pública. Es la **opción A de [ADR-013](adr/ADR-013-capacidad-y-costos.md)**: una sola VM que corre el mismo `docker compose` que usamos en local, con un override que deja afuera solo el gateway.
 
-- **URL pública:** _pendiente_. Se anota acá, en el [`README.md`](../README.md) y en [`contracts/README.md`](contracts/README.md) apenas exista.
+- **URL pública: <http://20.226.84.78/>** — desplegada el 11/11/2026. VM `arqsoft` de Azure (`Standard_D2s_v4`, 2 vCPU y 8 GB, `brazilsouth`, resource group `arqsoft-rg`), con los **14 contenedores** corriendo. IP estática: no cambia si se apaga la VM.
 - **Qué queda expuesto a internet:** solo el `api-gateway` en el puerto 80, que atiende la capacidad (`/api/v1/proveedores/recomendados`), el login, stock y el frontend (`/`).
 - **Qué no queda expuesto:** bases, broker, servicios y las consolas de operación (Grafana, Prometheus, Jaeger, RabbitMQ y el control del mock de FAV). Las consolas quedan en `127.0.0.1` de la VM y se ven con un túnel SSH.
 

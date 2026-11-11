@@ -323,9 +323,15 @@ grupal pide actualizar.
   ([`POSTMORTEM.md`](POSTMORTEM.md#escenario-1--redis-caído)). La pieza ya existe
   en `import-service/internal/resiliencia`, pero vive en el `internal` de otro
   módulo y hoy no se puede reutilizar.
-- **La nube está preparada pero no creada.** El override, el script de
-  instalación y la guía están ([`NUBE.md`](NUBE.md)); falta crear la VM y
-  publicar la URL. Sin HTTPS (necesita dominio).
+- **La nube no tiene HTTPS.** El sistema completo está desplegado en
+  <http://20.226.84.78/> (VM de Azure, 2 vCPU y 8 GB, [`NUBE.md`](NUBE.md)),
+  pero la URL es `http://`: para TLS hace falta un dominio y un proxy con
+  certificado automático. No lo pide la consigna.
+- **Una sola VM, sin réplicas ni respaldo.** Si se cae la máquina, se cae todo:
+  el balanceo cubre al servicio, no al host. Es la opción A de
+  [ADR-013](adr/ADR-013-capacidad-y-costos.md), elegida a propósito por costo.
+- **El test de carga no se repitió contra la nube.** Con 2 vCPU mediría la VM y
+  no la arquitectura; las mediciones publicadas son locales.
 
 **Calidad y operación**
 
