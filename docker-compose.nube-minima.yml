@@ -1,0 +1,90 @@
+# Despliegue mínimo para una VM chica (1 vCPU, 1 GB).
+#
+# Es el plan B que ya estaba escrito en el plan de la Entrega 3 ("si la nube se
+# complica, subir solo el gateway, proveedores-service y PostgreSQL: es lo único
+# que la consigna exige que esté en la nube") y en ADR-013. Existe porque las
+# instancias gratuitas con 4 GB están casi siempre agotadas y no conviene que la
+# URL pública dependa de eso.
+#
+# Se usa encima de los otros dos, levantando solo cuatro servicios:
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.nube.yml \
+#     -f docker-compose.nube-minima.yml \
+#     up -d --build postgres proveedores-service-1 proveedores-service-2 api-gateway
+#
+# Nombrar los cuatro servicios **no alcanza**: las réplicas declaran
+# `depends_on` de redis, meilisearch y rabbitmq, así que compose los levanta
+# igual. Por eso acá se reemplaza ese `depends_on` con `!override` y queda solo
+# PostgreSQL. (Probado: sin el `!override`, `up` arranca los tres de más y
+# falla por puertos.) `!override` necesita Docker Compose 2.24.4 o más nuevo.
+#
+# **Qué se pierde, y hay que decirlo en la demo:** la caché, la búsqueda, el
+# consumo del evento, los pedidos a FAV, el tablero y las trazas no están en la
+# nube. Se muestran en local, donde sí corren los 14 contenedores. Lo que queda
+# arriba es la capacidad que consume el grupo de paneles solares, el login y el
+# frontend, que es lo que la consigna pide que esté en la nube.
+#
+# No degrada nada por accidente: proveedores-service trata Redis, Meilisearch y
+# RabbitMQ como opcionales (ADR-010). Sin `MEILI_URL` la búsqueda contesta 503
+# en lugar de caerse, y sin `RABBITMQ_URL` no consume eventos.
+services:
+  proveedores-service-1:
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+    environment:
+      # Vacías a propósito: esas dependencias no están en esta VM.
+      REDIS_URL: ""
+      CACHE_HABILITADA: "false"
+      MEILI_URL: ""
+      RABBITMQ_URL: ""
+      # Jaeger tampoco está. El exportador falla en segundo plano y las
+      # requests siguen igual, pero mejor no intentarlo.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  proveedores-service-2:
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+    environment:
+      REDIS_URL: ""
+      CACHE_HABILITADA: "false"
+      MEILI_URL: ""
+      RABBITMQ_URL: ""
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  api-gateway:
+    environment:
+      # Sin stock-service, el gateway no publica /api/v1/stock/ en lugar de
+      # rutear a un contenedor que no existe.
+      STOCK_URL: ""
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  postgres:
+    # Con 1 GB en la VM hay que acotar PostgreSQL: por defecto dimensiona sus
+    # buffers contra la memoria de la máquina. El entrypoint de la imagen sigue
+    # corriendo los scripts de init, así que las dos bases se crean igual.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=50
+    deploy:
+      resources:
+        limits:
+          memory: 512M

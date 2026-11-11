@@ -7,6 +7,12 @@
 #
 # o, con el repo ya clonado: bash infra/nube/instalar.sh
 #
+# En una VM chica (1 GB), MINIMA=1 levanta solo el gateway,
+# proveedores-service y PostgreSQL, que es lo único que la consigna exige que
+# esté en la nube (ver docs/NUBE.md):
+#
+#   curl -fsSL .../instalar.sh | MINIMA=1 bash
+#
 # Es idempotente: si se vuelve a correr, actualiza el código y reconstruye,
 # sin tocar el .env ni los volúmenes.
 set -euo pipefail
@@ -14,6 +20,17 @@ set -euo pipefail
 REPO="${REPO:-https://github.com/matiasdemetriorufeil/arq-soft-proveedores.git}"
 RAMA="${RAMA:-main}"
 DIR="${DIR:-$HOME/arq-soft-proveedores}"
+MINIMA="${MINIMA:-}"
+
+# Los archivos de compose y, en el modo mínimo, los únicos servicios que se
+# levantan: nombrarlos no alcanza, porque las réplicas declaran depends_on de
+# redis, meilisearch y rabbitmq; eso lo corta el !override del tercer archivo.
+ARCHIVOS=(-f docker-compose.yml -f docker-compose.nube.yml)
+SERVICIOS=()
+if [ -n "$MINIMA" ]; then
+  ARCHIVOS+=(-f docker-compose.nube-minima.yml)
+  SERVICIOS=(postgres proveedores-service-1 proveedores-service-2 api-gateway)
+fi
 
 # 1. Docker y el plugin de compose, desde el repositorio oficial de Docker.
 if ! command -v docker >/dev/null 2>&1; then
@@ -75,8 +92,13 @@ if [ ! -f .env ]; then
 fi
 
 # 4. Levantar.
-echo ">> levantando el sistema (la primera vez tarda unos minutos)"
-$DOCKER compose -f docker-compose.yml -f docker-compose.nube.yml up -d --build
+if [ -n "$MINIMA" ]; then
+  echo ">> levantando el DESPLIEGUE MINIMO: gateway, proveedores-service y PostgreSQL"
+  echo "   (sin cache, busqueda, eventos, stock, FAV ni tablero: eso se muestra en local)"
+else
+  echo ">> levantando el sistema (la primera vez tarda unos minutos)"
+fi
+$DOCKER compose "${ARCHIVOS[@]}" up -d --build ${SERVICIOS[@]+"${SERVICIOS[@]}"}
 
 IP="$(curl -fsS --max-time 5 https://api.ipify.org || hostname -I | awk '{print $1}')"
 echo
@@ -87,7 +109,16 @@ echo "   frontend: http://$IP/"
 # Las variables de FAV no se generan al azar: son datos que entrega el otro
 # grupo. Sin ellas el sistema funciona igual, contra el mock, así que es un
 # olvido fácil y silencioso: se avisa acá en lugar de que aparezca en la demo.
-if ! grep -q '^FAV_URL=.\+' .env; then
+#
+# En el modo mínimo no corre stock-service, así que no hay receptor del webhook
+# y el aviso de arriba no aplica: lo que corresponde es decir qué falta.
+if [ -n "$MINIMA" ]; then
+  echo
+  echo ">> esta VM corre el despliegue minimo. NO estan en la nube:"
+  echo "   la cache, la busqueda, el consumo del evento, los pedidos a FAV,"
+  echo "   el webhook, el tablero ni las trazas. Se muestran en local."
+  echo "   La capacidad, el login y el frontend si estan, que es lo que pide la consigna."
+elif ! grep -q '^FAV_URL=.\+' .env; then
   echo
   echo ">> FALTA conectar el FAV real. Hoy corre contra el mock."
   echo "   En $DIR/.env, con los datos que entregó FAV:"
@@ -95,7 +126,7 @@ if ! grep -q '^FAV_URL=.\+' .env; then
   echo "     FAV_API_KEY=<su clave>"
   echo "     FAV_SECRETO_AVISOS=<el secreto compartido de los avisos>"
   echo "     FAV_NOTIFICACION_URL=http://$IP:${PUERTO_WEBHOOK_FAV:-8081}/webhooks/fav"
-  echo "   Después: $DOCKER compose -f docker-compose.yml -f docker-compose.nube.yml up -d"
+  echo "   Después: $DOCKER compose ${ARCHIVOS[*]} up -d ${SERVICIOS[*]}"
   echo "   Y pasarle a FAV esa URL del webhook (ver docs/contracts/para-fav.md)."
   echo "   Acordate de abrir el puerto ${PUERTO_WEBHOOK_FAV:-8081} en el firewall del proveedor."
 fi

@@ -21,7 +21,35 @@ Opciones que no cuestan nada durante la cursada: **Oracle Cloud Free Tier** (VM 
 
 **Sobre ARM (Ampere A1 de Oracle):** sirve. Se verificó el 10/11 que las ocho imágenes de terceros del compose publican `linux/arm64` —`postgres:16-alpine`, `mongo:9.0`, `redis:7.4-alpine`, `rabbitmq:4.1-management-alpine`, `getmeili/meilisearch:v1.14`, `jaegertracing/all-in-one:1.76.0`, `prom/prometheus:v3.5.0` y `grafana/grafana:12.1.1`— y que nuestros cuatro Dockerfiles no fijan `GOARCH`, así que Go compila para la arquitectura de la VM; `golang:1.26-alpine` y `distroless/static-debian12` también son multi-arquitectura. No hay que cambiar nada para desplegar en ARM.
 
-**El problema real de Oracle no es ARM, es el stock:** las instancias Ampere están casi siempre agotadas y la consola responde *"Out of host capacity"*. Si pasa, hay que reintentar (otra zona de disponibilidad, o más tarde) o caer a otro proveedor. Conviene no dejarlo para la última hora.
+**El problema real de Oracle no es ARM, es el stock:** las instancias Ampere están casi siempre agotadas y la consola responde *"Out of host capacity"*, incluso pidiendo 1 OCPU. Si pasa, hay tres salidas, en este orden:
+
+1. **Probar la otra forma Always Free: `VM.Standard.E2.1.Micro`** (AMD, 1/8 OCPU y 1 GB). Es una familia distinta de Ampere y suele tener lugar. Con 1 GB no entran los 14 contenedores, pero sí el despliegue mínimo de la sección 5, que **mide 34 MB en total**.
+2. **Otro proveedor.** Azure for Students (USD 100 sin tarjeta) o DigitalOcean (USD 200 por el GitHub Student Pack) dan una VM de 2 vCPU y 4 GB en minutos, y ahí corre el sistema completo.
+3. **Otra zona de disponibilidad o más tarde.** La capacidad de Ampere va y viene; no es algo para dejar a la última hora.
+
+### Si la VM es chica: despliegue mínimo
+
+El plan B que ADR-013 y el plan de la entrega ya tenían escrito: **subir solo el gateway, `proveedores-service` y PostgreSQL**, que es lo único que la consigna exige que esté en la nube.
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.nube.yml \
+  -f docker-compose.nube-minima.yml \
+  up -d --build postgres proveedores-service-1 proveedores-service-2 api-gateway
+```
+
+**Medido el 10/11** levantándolo de verdad: cuatro contenedores y **34 MB de memoria** (gateway 4,5 MB, cada réplica 3,6 MB, PostgreSQL 22,6 MB). Verificado que responden la capacidad con su ranking, el login, el frontend y el balanceo entre las dos réplicas.
+
+**Qué se pierde, y hay que decirlo en la demo en lugar de que lo descubran:** la caché, la búsqueda, el consumo del evento, los pedidos a FAV, el tablero y las trazas **no están en la nube**; se muestran en local, donde corren los 14 contenedores. La búsqueda contesta `503` y `/api/v1/stock/` no se publica, las dos cosas a propósito: `proveedores-service` trata Redis, Meilisearch y RabbitMQ como opcionales ([ADR-010](adr/ADR-010-resiliencia.md)).
+
+**Con 1/8 de OCPU, compilar es el cuello de botella**, no correr. Conviene agregar swap antes del primer build:
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
 
 En el firewall o grupo de seguridad del proveedor hay que abrir el puerto 80, y el 8081 si se conecta el FAV real. En Oracle Cloud además hay que abrirlos en el firewall de la propia VM:
 
