@@ -24,7 +24,38 @@ Opciones que no cuestan nada durante la cursada: **Oracle Cloud Free Tier** (VM 
 **El problema real de Oracle no es ARM, es el stock:** las instancias Ampere están casi siempre agotadas y la consola responde *"Out of host capacity"*, incluso pidiendo 1 OCPU. Si pasa, hay tres salidas, en este orden:
 
 1. **Probar la otra forma Always Free: `VM.Standard.E2.1.Micro`** (AMD, 1/8 OCPU y 1 GB). Es una familia distinta de Ampere y suele tener lugar. Con 1 GB no entran los 14 contenedores, pero sí el despliegue mínimo de la sección 5, que **mide 34 MB en total**.
-2. **Otro proveedor.** Azure for Students (USD 100 sin tarjeta) o DigitalOcean (USD 200 por el GitHub Student Pack) dan una VM de 2 vCPU y 4 GB en minutos, y ahí corre el sistema completo.
+2. **Otro proveedor.** Azure for Students (USD 100 sin tarjeta) o DigitalOcean (USD 200 por el GitHub Student Pack) dan una VM de 2 vCPU y 4 GB en minutos, y ahí corre el sistema completo. Lo que hicimos: ver abajo.
+
+### Azure for Students: las tres trampas
+
+Se desplegó así el 11/11. Tres cosas hicieron perder tiempo y conviene saberlas de antemano:
+
+1. **Los proveedores de recursos no vienen registrados** en una suscripción nueva. Mientras `Microsoft.Compute` dice `NotRegistered`, `az vm list-usage` devuelve **vacío** en lugar de un error, así que parece que no hay cuota. Primero:
+   ```bash
+   az provider register -n Microsoft.Compute
+   az provider register -n Microsoft.Network
+   ```
+   Tarda un par de minutos; se espera a que digan `Registered`.
+2. **"Disponible" y "con cuota" son cosas distintas, y hay que mirar las dos.** `Standard_B2s` figura con cuota de 4 vCPU pero está `NotAvailableForSubscription`. `Standard_D2as_v7` figura disponible pero su familia tiene **cuota 0**, y la creación falla con `QuotaExceeded` recién en el deploy. Hay que cruzar `az vm list-skus` (sin `restrictions`) con `az vm list-usage` (límite de **esa** familia, por el campo `family` del SKU) y respetar además el tope regional, que en Azure for Students es de **6 vCPU**.
+3. **El tamaño que funcionó** en `brazilsouth` fue **`Standard_D2s_v4`**: 2 vCPU y 8 GB, disponible y con cuota de 4 en su familia.
+
+```bash
+az group create -n arqsoft-rg -l brazilsouth
+az vm create -g arqsoft-rg -n arqsoft \
+  --image Ubuntu2404 --size Standard_D2s_v4 \
+  --admin-username azureuser --generate-ssh-keys \
+  --public-ip-sku Standard --os-disk-size-gb 32
+az vm open-port -g arqsoft-rg -n arqsoft --port 80   --priority 900
+az vm open-port -g arqsoft-rg -n arqsoft --port 8081 --priority 910
+```
+
+A diferencia de Oracle, acá **no hace falta tocar el firewall de la VM**: el NSG es el único filtro.
+
+**Apagarla cuando no se usa** (detenida casi no consume crédito; el disco sí, poco):
+```bash
+az vm deallocate -g arqsoft-rg -n arqsoft    # apagar
+az vm start      -g arqsoft-rg -n arqsoft    # prender (la IP pública se mantiene: es Standard, estática)
+```
 3. **Otra zona de disponibilidad o más tarde.** La capacidad de Ampere va y viene; no es algo para dejar a la última hora.
 
 ### Si la VM es chica: despliegue mínimo
