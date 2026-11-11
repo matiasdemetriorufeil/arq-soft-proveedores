@@ -350,6 +350,12 @@ grupal pide actualizar.
   la base. Con la base caída el sistema responde `503 NO_DISPONIBLE` a los 2 s, sin
   colgarse, contra un timeout de 3 s en el gateway: el margen es de 1 segundo
   ([ADR-010](adr/ADR-010-resiliencia.md)).
+- **En la nube, el puerto del webhook deja `stock-service` accesible por fuera del
+  gateway.** ADR-009 pide que FAV llegue a `/webhooks/fav` directo, así que el
+  override publica el puerto del servicio; con eso, `/api/v1/stock/...` también
+  queda alcanzable desde internet. Sigue detrás de su clave de API, pero **sin el
+  límite de tráfico del gateway**. Lo correcto sería un proxy que publique solo la
+  ruta del webhook; con un solo consumidor conocido se asume.
 - **El `/readyz` del gateway sigue en `200` con PostgreSQL caído.** Es coherente
   —el gateway no tiene base y su trabajo es rutear— pero significa que un
   orquestador no lo sacaría de rotación aunque no pueda servir nada útil. Hoy lo

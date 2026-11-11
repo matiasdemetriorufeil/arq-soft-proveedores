@@ -81,3 +81,35 @@ func TestLeerAvisoIncompleto(t *testing.T) {
 		}
 	}
 }
+
+// El contrato de FAV declara eventoId como format:uuid y la columna donde lo
+// guardamos es uuid. Sin esta validación el aviso pasa, falla el INSERT y el
+// receptor contesta 503, que para FAV significa "reintentá": reintentaría para
+// siempre un aviso que nunca va a entrar. Tiene que ser 400.
+func TestLeerAvisoRechazaUnEventoIDQueNoEsUUID(t *testing.T) {
+	const pedido = `,"tipo":"pedido.actualizado","pedido":{"pedidoId":"p","estado":"PAGADO"}}`
+	malos := []string{
+		`verif-spec-0001`,                        // texto libre
+		`3b7e9a2c5d1f4c8ea9b06f2d1e4c7a8b`,       // sin guiones
+		`{3b7e9a2c-5d1f-4c8e-a9b0-6f2d1e4c7a8b}`, // con llaves, que PostgreSQL aceptaría
+		`3b7e9a2c-5d1f-4c8e-a9b0-6f2d1e4c7a8`,    // un carácter de menos
+		`3b7e9a2c-5d1f-4c8e-a9b0-6f2d1e4c7a8g`,   // 'g' no es hexadecimal
+	}
+	for _, id := range malos {
+		cuerpo := []byte(`{"eventoId":"` + id + `"` + pedido)
+		if _, err := fav.LeerAviso(cuerpo); !errors.Is(err, fav.ErrAvisoInvalido) {
+			t.Errorf("LeerAviso con eventoId %q = %v; quiero ErrAvisoInvalido", id, err)
+		}
+	}
+
+	// El del contrato, y el mismo en mayúsculas, tienen que pasar.
+	for _, id := range []string{
+		"3b7e9a2c-5d1f-4c8e-a9b0-6f2d1e4c7a8b",
+		"3B7E9A2C-5D1F-4C8E-A9B0-6F2D1E4C7A8B",
+	} {
+		cuerpo := []byte(`{"eventoId":"` + id + `"` + pedido)
+		if _, err := fav.LeerAviso(cuerpo); err != nil {
+			t.Errorf("LeerAviso con eventoId %q = %v; quiero nil", id, err)
+		}
+	}
+}
