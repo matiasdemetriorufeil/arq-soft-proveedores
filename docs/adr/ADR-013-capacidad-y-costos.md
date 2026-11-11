@@ -1,6 +1,6 @@
 # ADR-013 — Capacidad y costos (D13)
 
-- **Estado:** aceptado. Test de carga ejecutado sobre el sistema real; la alternativa de escalado y la estimación de costos son propuestas para el despliegue en la nube (Entrega 3).
+- **Estado:** aceptado e implementado. Test de carga ejecutado sobre el sistema real, y la **opción A desplegada el 11/11**: una VM con el mismo `docker compose` (Azure `Standard_D2s_v4`, 2 vCPU y 8 GB), con los 14 contenedores y URL pública en <http://20.226.84.78/> ([`NUBE.md`](../NUBE.md)). La alternativa de escalado horizontal sigue siendo una propuesta.
 - **Fecha:** 2026-10-23 · actualizado 2026-11-06
 - **Entrega:** 2 (23/10); corrida con el pool arreglado y con caché en la 3 (06/11)
 - **Decisión de la consigna:** D13. Resultados de las pruebas de carga, principal límite identificado, alternativa de escalado y estimación de costos.

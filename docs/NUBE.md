@@ -2,7 +2,7 @@
 
 Cómo se sube el sistema a una VM con URL pública. Es la **opción A de [ADR-013](adr/ADR-013-capacidad-y-costos.md)**: una sola VM que corre el mismo `docker compose` que usamos en local, con un override que deja afuera solo el gateway.
 
-- **URL pública:** _pendiente_. Se anota acá, en el [`README.md`](../README.md) y en [`contracts/README.md`](contracts/README.md) apenas exista.
+- **URL pública: <http://20.226.84.78/>** — desplegada el 11/11/2026. VM `arqsoft` de Azure (`Standard_D2s_v4`, 2 vCPU y 8 GB, `brazilsouth`, resource group `arqsoft-rg`), con los **14 contenedores** corriendo. IP estática: no cambia si se apaga la VM.
 - **Qué queda expuesto a internet:** solo el `api-gateway` en el puerto 80, que atiende la capacidad (`/api/v1/proveedores/recomendados`), el login, stock y el frontend (`/`).
 - **Qué no queda expuesto:** bases, broker, servicios y las consolas de operación (Grafana, Prometheus, Jaeger, RabbitMQ y el control del mock de FAV). Las consolas quedan en `127.0.0.1` de la VM y se ven con un túnel SSH.
 
@@ -15,11 +15,95 @@ Cualquier proveedor sirve. Lo que hace falta:
 | Sistema | Ubuntu 24.04 LTS | el script de instalación usa `apt` vía `get.docker.com` |
 | Tamaño | 2 vCPU y 4 GB de RAM como mínimo | son 14 contenedores; MongoDB, RabbitMQ y Grafana son los que más memoria piden |
 | Disco | 20 GB | imágenes, volúmenes y la caché de build de Go |
-| Puertos de entrada | **22** (SSH) y **80** (HTTP) | nada más: las consolas van por el túnel SSH |
+| Puertos de entrada | **22** (SSH), **80** (HTTP) y **8081** (webhook de FAV) | nada más: las consolas van por el túnel SSH. El 8081 es donde FAV nos avisa de los pedidos, directo a `stock-service` y no por el gateway ([ADR-009](adr/ADR-009-consumo-proveedor.md)); si no se usa el FAV real, no hace falta abrirlo |
 
 Opciones que no cuestan nada durante la cursada: **Oracle Cloud Free Tier** (VM Ampere A1, hasta 4 vCPU y 24 GB sin cargo), **Google Cloud** (USD 300 de crédito inicial, `e2-medium`) o **Azure for Students** (USD 100 sin tarjeta). En AWS una `t3.medium` sale cerca de USD 30 por mes y la capa gratuita (`t3.micro`, 1 GB) no alcanza.
 
-En el firewall o grupo de seguridad del proveedor hay que abrir el puerto 80. En Oracle Cloud además hay que abrirlo en el firewall de la propia VM: `sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT`.
+**Sobre ARM (Ampere A1 de Oracle):** sirve. Se verificó el 10/11 que las ocho imágenes de terceros del compose publican `linux/arm64` —`postgres:16-alpine`, `mongo:9.0`, `redis:7.4-alpine`, `rabbitmq:4.1-management-alpine`, `getmeili/meilisearch:v1.14`, `jaegertracing/all-in-one:1.76.0`, `prom/prometheus:v3.5.0` y `grafana/grafana:12.1.1`— y que nuestros cuatro Dockerfiles no fijan `GOARCH`, así que Go compila para la arquitectura de la VM; `golang:1.26-alpine` y `distroless/static-debian12` también son multi-arquitectura. No hay que cambiar nada para desplegar en ARM.
+
+**El problema real de Oracle no es ARM, es el stock:** las instancias Ampere están casi siempre agotadas y la consola responde *"Out of host capacity"*, incluso pidiendo 1 OCPU. Si pasa, hay tres salidas, en este orden:
+
+1. **Probar la otra forma Always Free: `VM.Standard.E2.1.Micro`** (AMD, 1/8 OCPU y 1 GB). Es una familia distinta de Ampere y suele tener lugar. Con 1 GB no entran los 14 contenedores, pero sí el despliegue mínimo de la sección 5, que **mide 34 MB en total**.
+2. **Otro proveedor.** Azure for Students (USD 100 sin tarjeta) o DigitalOcean (USD 200 por el GitHub Student Pack) dan una VM de 2 vCPU y 4 GB en minutos, y ahí corre el sistema completo. Lo que hicimos: ver abajo.
+
+### Azure for Students: las tres trampas
+
+Se desplegó así el 11/11. Tres cosas hicieron perder tiempo y conviene saberlas de antemano:
+
+1. **Los proveedores de recursos no vienen registrados** en una suscripción nueva. Mientras `Microsoft.Compute` dice `NotRegistered`, `az vm list-usage` devuelve **vacío** en lugar de un error, así que parece que no hay cuota. Primero:
+   ```bash
+   az provider register -n Microsoft.Compute
+   az provider register -n Microsoft.Network
+   ```
+   Tarda un par de minutos; se espera a que digan `Registered`.
+2. **"Disponible" y "con cuota" son cosas distintas, y hay que mirar las dos.** `Standard_B2s` figura con cuota de 4 vCPU pero está `NotAvailableForSubscription`. `Standard_D2as_v7` figura disponible pero su familia tiene **cuota 0**, y la creación falla con `QuotaExceeded` recién en el deploy. Hay que cruzar `az vm list-skus` (sin `restrictions`) con `az vm list-usage` (límite de **esa** familia, por el campo `family` del SKU) y respetar además el tope regional, que en Azure for Students es de **6 vCPU**.
+3. **El tamaño que funcionó** en `brazilsouth` fue **`Standard_D2s_v4`**: 2 vCPU y 8 GB, disponible y con cuota de 4 en su familia.
+
+```bash
+az group create -n arqsoft-rg -l brazilsouth
+az vm create -g arqsoft-rg -n arqsoft \
+  --image Ubuntu2404 --size Standard_D2s_v4 \
+  --admin-username azureuser --generate-ssh-keys \
+  --public-ip-sku Standard --os-disk-size-gb 32
+az vm open-port -g arqsoft-rg -n arqsoft --port 80   --priority 900
+az vm open-port -g arqsoft-rg -n arqsoft --port 8081 --priority 910
+```
+
+A diferencia de Oracle, acá **no hace falta tocar el firewall de la VM**: el NSG es el único filtro.
+
+**Apagarla cuando no se usa** (detenida casi no consume crédito; el disco sí, poco):
+```bash
+az vm deallocate -g arqsoft-rg -n arqsoft    # apagar
+az vm start      -g arqsoft-rg -n arqsoft    # prender (la IP pública se mantiene: es Standard, estática)
+```
+3. **Otra zona de disponibilidad o más tarde.** La capacidad de Ampere va y viene; no es algo para dejar a la última hora.
+
+### Si la VM es chica: despliegue mínimo
+
+El plan B que ADR-013 y el plan de la entrega ya tenían escrito: **subir solo el gateway, `proveedores-service` y PostgreSQL**, que es lo único que la consigna exige que esté en la nube.
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.nube.yml \
+  -f docker-compose.nube-minima.yml \
+  up -d --build postgres proveedores-service-1 proveedores-service-2 api-gateway
+```
+
+**Medido el 10/11** levantándolo de verdad: cuatro contenedores y **34 MB de memoria** (gateway 4,5 MB, cada réplica 3,6 MB, PostgreSQL 22,6 MB). Verificado que responden la capacidad con su ranking, el login, el frontend y el balanceo entre las dos réplicas.
+
+**Qué se pierde, y hay que decirlo en la demo en lugar de que lo descubran:** la caché, la búsqueda, el consumo del evento, los pedidos a FAV, el tablero y las trazas **no están en la nube**; se muestran en local, donde corren los 14 contenedores. La búsqueda contesta `503` y `/api/v1/stock/` no se publica, las dos cosas a propósito: `proveedores-service` trata Redis, Meilisearch y RabbitMQ como opcionales ([ADR-010](adr/ADR-010-resiliencia.md)).
+
+**Con 1/8 de OCPU, compilar es el cuello de botella**, no correr. Conviene agregar swap antes del primer build:
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+En el firewall o grupo de seguridad del proveedor hay que abrir el puerto 80, y el 8081 si se conecta el FAV real. En Oracle Cloud además hay que abrirlos en el firewall de la propia VM:
+
+```bash
+sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT -p tcp --dport 8081 -j ACCEPT   # solo con el FAV real
+```
+
+### Si no sale ninguna VM: túnel (respaldo, NO es la nube)
+
+Red de seguridad para no quedarse sin URL pública el día de la presentación. **No cumple el ítem de la consigna** —es una máquina local detrás de un túnel, no capacidad desplegada— y hay que presentarlo por lo que es.
+
+Con el sistema levantado en local:
+
+```bash
+cloudflared tunnel --url http://localhost:8080
+```
+
+Imprime una URL `https://<palabras>.trycloudflare.com` que sale a internet, con HTTPS y sin cuenta ni configuración. **Probado el 10/11**: el frontend carga, y la capacidad, el login, la búsqueda y la reserva responden igual que en local.
+
+Se eligió sobre `ngrok` porque ngrok gratuito intercala una **pantalla de advertencia** antes de la aplicación la primera vez que se entra desde un navegador, y eso no se quiere en medio de una demo. Cloudflare no la tiene.
+
+Límites: la URL cambia cada vez que se reinicia, el túnel vive mientras viva el proceso, y **mientras está arriba el sistema queda expuesto con las credenciales del `.env` local**. Conviene levantarlo para la demo y bajarlo después.
 
 ## 2. Instalar y levantar
 
@@ -78,4 +162,4 @@ Con el túnel abierto: Grafana en <http://localhost:3000> (usuario `admin`, cont
 ## Pendiente
 
 - **HTTPS.** La URL es `http://`. Para HTTPS hace falta un dominio (por ejemplo uno gratis de DuckDNS) y un proxy con certificado automático (Caddy) delante del gateway. No lo pide la consigna; queda como deuda en `ARCHITECTURE.md`.
-- **El webhook de FAV.** Con el FAV desplegado, FAV tiene que poder llegar a `stock-service` en `/webhooks/fav` **sin pasar por el gateway** ([ADR-009](adr/ADR-009-consumo-proveedor.md)). Eso necesita publicar esa ruta en otro puerto de la VM y poner la URL en `FAV_NOTIFICACION_URL`. Mientras se use el mock, no hace falta.
+- **El webhook de FAV: el puerto ya está, falta la URL.** El override publica `stock-service` en `PUERTO_WEBHOOK_FAV` (8081 por defecto), así que FAV puede llegar a `/webhooks/fav` **sin pasar por el gateway** ([ADR-009](adr/ADR-009-consumo-proveedor.md)). Cuando la VM exista hay que poner su URL en `FAV_NOTIFICACION_URL` y pasársela a FAV: la hoja con todo lo que necesitan está en [`contracts/para-fav.md`](contracts/para-fav.md). Abrir ese puerto también deja accesible `/api/v1/stock/...` por fuera del gateway —sigue detrás de su clave de API, pero sin el límite de tráfico—; está anotado en `ARCHITECTURE.md`.

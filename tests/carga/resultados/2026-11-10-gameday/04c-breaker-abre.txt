@@ -1,0 +1,9 @@
+### Escenario 4c: el breaker abre tras 3 vueltas fallidas (intervalo forzado a 10s)
+"msg":"no se pudo bajar el catálogo de FAV; siguen valiendo las últimas ofertas","service":"import-service","importacion_id":"685e1cd8-936a-439f-a2d0-0a94afa33f21","error":"FAV no está disponible: FAV respondió 503 NO_DISPONIBLE","breaker":"cerrado"
+"msg":"no se pudo bajar el catálogo de FAV; siguen valiendo las últimas ofertas","service":"import-service","importacion_id":"ac61e2a3-59d7-40a8-ad6d-06dd858a0969","error":"FAV no está disponible: FAV respondió 503 NO_DISPONIBLE","breaker":"cerrado"
+"msg":"no se pudo bajar el catálogo de FAV; siguen valiendo las últimas ofertas","service":"import-service","importacion_id":"2139b8c3-9609-4605-a6f8-a6ff34dd4bdc","error":"FAV no está disponible: FAV respondió 503 NO_DISPONIBLE","breaker":"abierto"
+"msg":"no se pudo bajar el catálogo de FAV; siguen valiendo las últimas ofertas","service":"import-service","importacion_id":"f547793a-25d4-4dc3-a7de-4ed9ea51dcb4","error":"circuit breaker abierto: no se llama a la dependencia","breaker":"abierto"
+"msg":"no se pudo bajar el catálogo de FAV; siguen valiendo las últimas ofertas","service":"import-service","importacion_id":"270ee0a2-ef80-4eef-a8c3-66316158d91b","error":"circuit breaker abierto: no se llama a la dependencia","breaker":"abierto"
+-- estado del breaker en las últimas líneas:
+      3 "breaker":"abierto"
+      2 "breaker":"cerrado"

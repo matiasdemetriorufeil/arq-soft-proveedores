@@ -1,0 +1,18 @@
+### Escenario 3: PostgreSQL caído
+-- se detiene postgres:
+ Container arq-soft-proveedores-postgres-1  Stopped
+-- la capacidad, 5 llamadas (interesa que falle RAPIDO, no que se cuelgue):
+  http=503 tiempo=2.010470s
+  http=503 tiempo=2.006820s
+  http=503 tiempo=2.006536s
+  http=503 tiempo=2.005598s
+  http=503 tiempo=2.007259s
+-- cuerpo del error:
+{"type":"https://github.com/matiasdemetriorufeil/arq-soft-proveedores/blob/main/docs/contracts/README.md#NO_DISPONIBLE","title":"Servicio no disponible","status":503,"detail":"el almacenamiento de ofertas no está disponible; reintentar más tarde","code":"NO_DISPONIBLE","instance":"/api/v1/proveedores/recomendados","request_id":"79209fb67b377370da30e0ca01bbe930"}
+
+-- reserva de stock con su base caída:
+  http=503 tiempo=2.006200s
+-- readyz de cada servicio:
+  gateway readyz=200
+-- se restaura postgres:
+ Container arq-soft-proveedores-postgres-1  Started

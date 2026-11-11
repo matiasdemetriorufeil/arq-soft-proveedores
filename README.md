@@ -42,7 +42,7 @@ consumidor ──► api-gateway ──► proveedores-service (2 réplicas) ─
 
 ## Estado del proyecto
 
-Entrega 3 en curso (06/11/2026). Lo que existe y lo que falta, sin mezclarlos:
+Entrega 3 cerrada (10/11/2026). Lo que existe y lo que falta, sin mezclarlos:
 
 | Componente | Estado |
 |---|---|
@@ -53,12 +53,15 @@ Entrega 3 en curso (06/11/2026). Lo que existe y lo que falta, sin mezclarlos:
 | Test de carga de la capacidad con k6 y su análisis ([ADR-013](docs/adr/ADR-013-capacidad-y-costos.md)) | ✅ implementado |
 | `import-service`: importa el catálogo de FAV, MongoDB, publica `ListaPreciosActualizada` en RabbitMQ, circuit breaker y test de contrato | ✅ implementado (contra el mock de FAV) |
 | RabbitMQ con cola de fallidos (DLQ), MongoDB, Redis y Meilisearch en el compose | ✅ levantan con `docker compose up` |
-| Consumo del evento en `proveedores-service`, caché y búsqueda | 📝 diseñado, sin código (Integrante 2) |
-| `stock-service` (reserva, reposición, pedidos a FAV) | 📝 diseñado, sin código (Integrante 3); su base ya existe |
+| Consumo del evento en `proveedores-service` (idempotente, con DLQ), caché Redis y búsqueda en Meilisearch | ✅ implementado y medido ([ADR-006](docs/adr/ADR-006-busqueda.md), [ADR-007](docs/adr/ADR-007-cache.md)) |
+| `stock-service`: reserva sin sobreventa, reposición automática, pedidos a FAV con `Idempotency-Key` y webhook HMAC | ✅ implementado ([ADR-004](docs/adr/ADR-004-consistencia-y-concurrencia.md), [ADR-009](docs/adr/ADR-009-consumo-proveedor.md)) |
 | `catalog-service` | ✖ fuera de alcance ([ADR-014](docs/adr/ADR-014-tres-servicios-sin-catalogo.md), a validar) |
-| Frontend web | 📝 pendiente |
-| Métricas, tablero y alertas | 📝 pendiente |
-| Despliegue en la nube (URL pública) | 📝 pendiente |
+| Login JWT y límite de tráfico (`429`) en el gateway | ✅ implementado (contrato 1.1.0) |
+| Frontend web (login → buscar → ranking → reservar), embebido en el gateway | ✅ implementado |
+| Métricas Prometheus, tablero Grafana y tres alertas | ✅ implementado ([ADR-011](docs/adr/ADR-011-observabilidad.md)) |
+| Pipeline de CI (GitHub Actions) con unitarios, integración e imágenes | ✅ implementado |
+| Game Day y informe de caídas | ✅ ejecutado ([`docs/POSTMORTEM.md`](docs/POSTMORTEM.md)) |
+| Despliegue en la nube con URL pública | ✅ **<http://20.226.84.78/>** — los 14 contenedores en una VM de Azure ([`docs/NUBE.md`](docs/NUBE.md)) |
 
 El detalle y las limitaciones conocidas están en
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#11-limitaciones-conocidas-y-deuda-técnica).
@@ -338,9 +341,30 @@ hace falta instalarlo): cómo correrlo y resultados en
 
 ## Cómo acceder a la parte desplegada
 
-**Todavía no hay una versión desplegada en la nube.** El sistema corre solo en
-local. La URL pública se agregará acá y en
-[`docs/contracts/README.md`](docs/contracts/README.md) cuando exista.
+**URL pública: <http://20.226.84.78/>**
+
+Es el sistema completo —los 14 contenedores— en una VM de Azure
+(`Standard_D2s_v4`, 2 vCPU y 8 GB, en `brazilsouth`), levantada con el mismo
+`docker compose` que se usa en local más el override de la nube. Cómo se
+desplegó y cómo se opera está en [`docs/NUBE.md`](docs/NUBE.md).
+
+| Qué | Dónde |
+|---|---|
+| Frontend (login → buscar → ranking → reservar) | <http://20.226.84.78/> |
+| Capacidad que consumen otros grupos | `GET http://20.226.84.78/api/v1/proveedores/recomendados` |
+| Contrato y ejemplos | [`docs/contracts/README.md`](docs/contracts/README.md) |
+
+**Las claves no están en el repositorio.** La del grupo de paneles solares y el
+usuario del frontend se generaron al azar en la VM y se entregan por separado.
+
+Qué **no** sale a internet: las bases, el broker, los servicios y las consolas
+de operación (Grafana, Prometheus, Jaeger, RabbitMQ y el control del mock de
+FAV) quedan en `127.0.0.1` de la VM y se ven por un túnel SSH. El único puerto
+extra abierto es el 8081, donde FAV entrega sus avisos de pedidos directo a
+`stock-service` ([ADR-009](docs/adr/ADR-009-consumo-proveedor.md)).
+
+Sin HTTPS: no hay dominio, así que la URL es `http://`. Queda como deuda en
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#11-limitaciones-conocidas-y-deuda-técnica).
 
 ## Estructura del repositorio
 

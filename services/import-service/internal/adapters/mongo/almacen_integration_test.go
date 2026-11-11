@@ -19,8 +19,11 @@ import (
 	"github.com/matiasdemetriorufeil/arq-soft-proveedores/services/import-service/internal/sincronizacion"
 )
 
-// La misma imagen que el docker-compose.yml.
-const imagenMongo = "mongo:8.0"
+// La misma imagen que el docker-compose.yml. En 8.0 el TCMalloc que trae
+// MongoDB rompe el ABI de rseq y el servidor se niega a arrancar sobre un
+// kernel 6.19 o más nuevo, que es el que traen los runners de GitHub
+// (SERVER-121912): los tests de integración fallaban solo en CI.
+const imagenMongo = "mongo:9.0"
 
 var cliente *driver.Client
 

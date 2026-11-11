@@ -170,10 +170,10 @@ productos, 170 ofertas) y se comprobaron contra el cálculo de RN-01 a RN-05.
 
 ### Stock, reposición e importación
 
-#### HU-11 — Importar la lista de precios de un proveedor · parcial
+#### HU-11 — Importar la lista de precios de un proveedor · implementado
 *Como operador de compras, quiero que la lista de un proveedor entre al comparador en su propio formato, para comparar sus precios.* Para FAV la lista se baja sola cada 5 minutos de su API; no hay carga manual.
 
-- **CA-11.1** *Dado* una lista válida en el formato de un proveedor, *cuando* se importa, *entonces* sus ofertas aparecen en el ranking dentro del retraso máximo definido (RN-19). *Parcial: se importa y se publica el evento; falta el consumidor.*
+- **CA-11.1** *Dado* una lista válida en el formato de un proveedor, *cuando* se importa, *entonces* sus ofertas aparecen en el ranking dentro del retraso máximo definido (RN-19). *Implementado: `proveedores-service` consume el evento de forma idempotente y actualiza las ofertas. Verificado de punta a punta el 10/11: un cambio de precio en FAV (15.000 → 19.999) llegó al ranking consultado por el gateway, incluso habiendo estado RabbitMQ caído en el medio ([`POSTMORTEM.md`](docs/POSTMORTEM.md#escenario-5--rabbitmq-caído-con-un-cambio-esperando)).*
 - **CA-11.2** *Dado* una lista con filas inválidas, *entonces* las válidas se importan y las inválidas quedan informadas, sin perder el resto. *Implementado: las variantes descartadas quedan en la importación con su motivo.*
 - **CA-11.3** *Dado* la misma lista importada dos veces, *entonces* no se duplican las ofertas. *Implementado: la segunda importación no publica nada.*
 
@@ -203,7 +203,7 @@ Un ciclo interno de `stock-service` corre al arrancar y cada `INTERVALO_REPOSICI
 - **CA-14.2** *Dado* una orden abierta para ese producto, *entonces* no se genera otra. Evidencia: `TestUnaSolaOrdenAbiertaPorSKU` (integración), que comprueba el índice único parcial `ux_ordenes_abierta_por_sku`: la invariante la garantiza la base, no solo la lógica. `TestOrdenNuevaDespuesDeConfirmada` verifica que sí se puede crear una nueva cuando la anterior se cerró.
 - **CA-14.3** *Dado* una orden, *entonces* solo puede pasar a `SOLICITADA` desde `BORRADOR`; a `CONFIRMADA` o `VENCIDA` desde `SOLICITADA`; y a `EN_REVISION` desde `SOLICITADA` o `VENCIDA` (RN-15). Evidencia: `TestTransicionesDeLaOrden` en `internal/service/ordenes_test.go`, un test de tabla sobre **las 25 combinaciones** de los cinco estados, que verifica las 5 válidas y rechaza las 20 restantes con `409 TRANSICION_INVALIDA`.
 
-#### HU-15 — Comprar al catálogo de ropa como a un proveedor más · parcial
+#### HU-15 — Comprar al catálogo de ropa como a un proveedor más · implementado
 *Como operador de compras, quiero que el catálogo del grupo de ropa participe del ranking y del stock, para comparar sus precios con los demás.*
 
 - **CA-15.1** *Dado* el catálogo de ropa disponible, *entonces* sus productos aparecen entre los candidatos del ranking y su compra impacta en el stock.
@@ -212,19 +212,19 @@ Un ciclo interno de `stock-service` corre al arrancar y cada `INTERVALO_REPOSICI
 - **CA-15.4** *Dado* que una prenda de FAV baja de su mínimo, *entonces* `stock-service` le hace el pedido con `Idempotency-Key` `<id de la orden>-<intento>`, y un reintento por timeout no crea un pedido duplicado. La orden pasa a `SOLICITADA` (RN-15). *Implementado:* `TestEnviarOrdenFAVCaidoReintentaConLaMismaClave` y `TestEnviarOrdenRechazadaUsaUnaClaveNuevaEnElIntentoSiguiente` (`internal/service`), `TestIntentosYClavesDelPedido` (integración contra PostgreSQL 16).
 - **CA-15.5** *Dado* que FAV avisa que el pedido se pagó, *entonces* se verifica la firma HMAC, se descarta un aviso repetido, se confirma el estado con `GET /v1/pedidos/{pedidoId}`, la orden pasa a `CONFIRMADA` y el stock suma las unidades **una sola vez**. Si el aviso se pierde, lo recupera la consulta de respaldo. *Implementado:* `TestAvisoPagadoConfirmaLaOrdenYSumaElStock`, `TestSeguimientoRecuperaUnAvisoPerdido`, `TestWebhookRechazos` y, contra PostgreSQL real, `TestAvisoRepetidoAlMismoTiempo` y `TestElAvisoYLaConsultaDeRespaldoALaVezSumanUnaSolaVez`.
 
-CA-15.1: la compra ya impacta en el stock (CA-15.4 y CA-15.5); falta que sus productos lleguen al ranking, que depende del consumidor del evento (Integrante 2). CA-15.2: `import-service` conserva las últimas ofertas, informa la antigüedad en `/estado` y publica su retiro a las 24 h; falta que el ranking lo aplique.
+CA-15.1: **completo**. La compra impacta en el stock (CA-15.4 y CA-15.5) y sus productos llegan al ranking: verificado el 10/11 con `GET /api/v1/proveedores/recomendados?producto=FAV-var-remera-basica-blanca-m`, que devuelve al proveedor 11 "FAV (tienda de ropa)" con su `costo_total`. CA-15.2: `import-service` conserva las últimas ofertas, informa la antigüedad en `/estado` y publica su retiro a las 24 h; con FAV caído el ranking siguió respondiendo con ellas en ~5 ms. **Lo que falta es que el ranking marque la antigüedad al usuario**: hoy el dato está en `/estado` de `import-service`, no en la respuesta de la capacidad.
 
-#### HU-16 — Buscar productos y proveedores con filtros · propuesto
+#### HU-16 — Buscar productos y proveedores con filtros · implementado ([ADR-006](docs/adr/ADR-006-busqueda.md))
 *Como operador de compras, quiero buscar por texto y filtrar y ordenar los resultados, para encontrar rápido lo que necesito.*
 
-- **CA-16.1** *Dado* una búsqueda, *entonces* los resultados vienen paginados, con al menos un filtro del dominio (por ejemplo, categoría) y un orden.
-- **CA-16.2** *Dado* un cambio en los datos, *entonces* aparece en la búsqueda dentro del retraso máximo definido en D6.
+- **CA-16.1** *Dado* una búsqueda, *entonces* los resultados vienen paginados, con al menos un filtro del dominio (por ejemplo, categoría) y un orden. *Implementado en `GET /api/v1/productos/buscar`, verificado el 10/11: `tamanio` y `pagina` paginan (la respuesta trae `total`, `pagina` y `tamanio`), `categoria=ropa-remeras` filtra, y `orden=precio_asc` ordena. Ojo: el tamaño de página es `tamanio` (20 por defecto), no `limite`, que es de la capacidad.*
+- **CA-16.2** *Dado* un cambio en los datos, *entonces* aparece en la búsqueda dentro del retraso máximo definido en D6. *Implementado: el índice se actualiza por el evento. El retraso máximo medido está en [ADR-006](docs/adr/ADR-006-busqueda.md).*
 
-#### HU-17 — Usar el sistema desde una interfaz web · propuesto
+#### HU-17 — Usar el sistema desde una interfaz web · parcial
 *Como operador de compras, quiero una interfaz web con ingreso, búsqueda, detalle y la acción principal, para no depender de herramientas técnicas.*
 
-- **CA-17.1** *Dado* un usuario con sesión, *entonces* puede iniciar sesión, buscar, ver el detalle de un producto con su ranking y ver sus órdenes de reposición.
-- **CA-17.2** *Dado* que la capacidad de un proveedor falla, *entonces* la interfaz informa qué pasó en lugar de quedar en blanco.
+- **CA-17.1** *Dado* un usuario con sesión, *entonces* puede iniciar sesión, buscar, ver el detalle de un producto con su ranking y ver sus órdenes de reposición. *Parcial: la web embebida en el gateway hace login con JWT, búsqueda por texto, ranking de proveedores y stock del producto, y reserva. **No muestra las órdenes de reposición**: se consultan por `GET /api/v1/stock/ordenes`.*
+- **CA-17.2** *Dado* que la capacidad de un proveedor falla, *entonces* la interfaz informa qué pasó en lugar de quedar en blanco. *Implementado: si la búsqueda no responde se puede escribir el SKU exacto, y los errores se muestran con su `request_id`.*
 
 ## 4. Requisitos no funcionales
 
@@ -261,8 +261,9 @@ criterios de aceptación del sistema completo.
 | HU-08 | RN-12 | `services/api-gateway/internal/gateway/balanceador.go`, [ADR-012](docs/adr/ADR-012-balanceo-de-carga.md) |
 | HU-09 | RN-11, RN-12 | timeouts del gateway y del adaptador de PostgreSQL |
 | HU-10 | — | `docker-compose.yml`, `.env.example` |
-| HU-11, HU-15 | RN-17 a RN-20 | `services/import-service` (catálogo, parcial); evento en [`docs/contracts/eventos.md`](docs/contracts/eventos.md); pedidos y webhook en `services/stock-service/internal/fav`, `internal/service/pedidos.go` y `migrations/004_pedidos_fav.sql`; [ADR-009](docs/adr/ADR-009-consumo-proveedor.md) |
+| HU-11, HU-15 | RN-17 a RN-20 | `services/import-service` (catálogo) y el consumidor del evento en `services/proveedores-service`; evento en [`docs/contracts/eventos.md`](docs/contracts/eventos.md); pedidos y webhook en `services/stock-service/internal/fav`, `internal/service/pedidos.go` y `migrations/004_pedidos_fav.sql`; [ADR-009](docs/adr/ADR-009-consumo-proveedor.md) |
 | HU-12 | RN-18 | fuera de alcance: [ADR-014](docs/adr/ADR-014-tres-servicios-sin-catalogo.md) |
 | HU-13 | RN-13 | `services/stock-service/internal/service` (regla y transacción), `internal/repository` (`SELECT … FOR UPDATE`), `migrations/001_init.sql`; [ADR-004](docs/adr/ADR-004-consistencia-y-concurrencia.md) |
 | HU-14 | RN-14, RN-15, RN-16 | `services/stock-service/internal/service/reposicion.go` (ciclo y cantidad), `internal/service/ordenes.go` (máquina de estados), `internal/proveedores` (consulta del más barato), `migrations/003_ordenes_reposicion.sql` (índice único parcial); [ADR-005](docs/adr/ADR-005-comunicacion.md) |
-| HU-16, HU-17 | — | sin código todavía; ver [ADR-001](docs/adr/ADR-001-limites-de-los-servicios.md) |
+| HU-16 | RN-19 | `services/proveedores-service/internal/adapters/meilisearch` (índice y reconstrucción), endpoint de búsqueda en `internal/adapters/http`; [ADR-006](docs/adr/ADR-006-busqueda.md) |
+| HU-17 | RN-09 | `services/api-gateway/internal/gateway/web/` (la web), `auth.go` y `jwt.go` (login), `limite.go` (control de tráfico) |

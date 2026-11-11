@@ -1,0 +1,30 @@
+Game Day de la Entrega 3
+========================
+
+Fecha:    10/11/2026 (noche)
+Informe:  docs/POSTMORTEM.md
+Rama:     chore/cierre-entrega-3
+Entorno:  docker compose up completo en una maquina, 14 contenedores healthy.
+          Imagenes construidas en el momento. Mongo 9.0, Postgres 16, Redis 7.4.
+Medicion: curl -w %{time_total} entrando por el gateway (localhost:8080), igual
+          que un consumidor; nunca contra el servicio directo.
+
+Archivos
+--------
+01-redis-caido.txt         Redis abajo: la lectura cae a PostgreSQL. 6,5 ms -> 56,6 ms.
+02-replica-caida.txt       Una replica de proveedores-service abajo: 20/20 en 200.
+03-postgres-caido.txt      PostgreSQL abajo: 503 NO_DISPONIBLE en 2,0 s, sin colgarse.
+04-fav-caido.txt           FAV abajo: el ranking sigue con la ultima importacion valida.
+04b-breaker-fav.txt        Primera vuelta fallida: breaker todavia cerrado.
+04c-breaker-abre.txt       El breaker abre en la 3a vuelta y deja de llamar a FAV.
+04d-fav-recupera.txt       FAV vuelve: la sincronizacion se recupera sola.
+05-rabbitmq-caido.txt      Broker abajo: el cambio queda en el outbox (pendientes=1)
+                           y se publica al volver; el precio nuevo llega al ranking.
+06-concurrencia-reservas.txt  20 reservas simultaneas sobre 5 unidades: 5x201, 15x409.
+07-limite-trafico.txt      400 llamadas concurrentes: 178x200, 222x429 con Retry-After.
+
+Nota sobre 04c
+--------------
+Para no esperar 15 minutos (3 vueltas de 5 min), INTERVALO_SINCRONIZACION se bajo a
+10s solo durante ese escenario y se volvio a 5m despues. El umbral del breaker
+(3 fallas seguidas) no se toco.

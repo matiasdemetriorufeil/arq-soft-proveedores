@@ -1,0 +1,7 @@
+### Escenario 4d: FAV vuelve y la importación se recupera sola
+-- se saca el modo caido:
+{"avisos":[],"modo":"normal","pedidos_de_catalogo":17,"pedidos_de_compra":2,"productos":5}
+
+"msg":"sincronización del catálogo de FAV terminada","service":"import-service","importacion_id":"ab255056-f178-4a6a-991c-6301ea35c50e","estado":"sin_cambios","altas":0,"modificadas":0,"bajas":0,"descartadas":0,"publicados":0,"pendientes":0,"error":"","trace_id":"e04442d68d4f1eecf3c03eab9d23cfc5","span_id":"123334b969624df2"
+"msg":"sincronización del catálogo de FAV terminada","service":"import-service","importacion_id":"8ef82aa1-fdde-4883-901a-8c235d057d12","estado":"sin_cambios","altas":0,"modificadas":0,"bajas":0,"descartadas":0,"publicados":0,"pendientes":0,"error":"","trace_id":"96e754b7deea81286a0af4d59ca2d8f2","span_id":"fb01f74e17182f21"
+"msg":"sincronización del catálogo de FAV terminada","service":"import-service","importacion_id":"3aa82470-2b47-42c8-a114-2507bea07679","estado":"sin_cambios","altas":0,"modificadas":0,"bajas":0,"descartadas":0,"publicados":0,"pendientes":0,"error":"","trace_id":"b660effe07e0fef653bb53614b855cda","span_id":"64cc7007c193ae52"

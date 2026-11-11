@@ -1,0 +1,3 @@
+### Escenario 4b: el circuit breaker de import-service con FAV caído
+-- se reinicia import-service para forzar vueltas de sincronización contra FAV caído:
+-- logs del breaker y de la última importación válida:

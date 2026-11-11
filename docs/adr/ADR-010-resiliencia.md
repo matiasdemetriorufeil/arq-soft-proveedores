@@ -1,6 +1,6 @@
 # ADR-010 — Resiliencia (D10)
 
-- **Estado:** aceptado e implementado para `api-gateway`, `proveedores-service` (timeouts, salida del reparto por salud, reintento acotado, error inmediato ante la base caída, telemetría opcional, y Redis, Meilisearch y RabbitMQ opcionales), `import-service` (circuit breaker, reintentos y última importación válida frente a FAV; outbox frente a RabbitMQ) y `stock-service` (timeout, reintentos con la misma `Idempotency-Key` y consulta de respaldo en los pedidos a FAV, 06/11); límite de tráfico en el gateway (token bucket por identidad, 06/11); **propuesto** para la caché como respaldo diseñado
+- **Estado:** aceptado e implementado para `api-gateway`, `proveedores-service` (timeouts, salida del reparto por salud, reintento acotado, error acotado a 2 s ante la base caída, telemetría opcional, y Redis, Meilisearch y RabbitMQ opcionales), `import-service` (circuit breaker, reintentos y última importación válida frente a FAV; outbox frente a RabbitMQ) y `stock-service` (timeout, reintentos con la misma `Idempotency-Key` y consulta de respaldo en los pedidos a FAV, 06/11); límite de tráfico en el gateway (token bucket por identidad, 06/11); **propuesto** para la caché como respaldo diseñado
 - **Fecha:** 2026-10-23 · actualizado 2026-11-06
 - **Entrega:** 2 (23/10), actualizado en la 3 (06/11)
 - **Decisión de la consigna:** D10. Comportamiento ante fallas y mecanismos seleccionados para limitar su propagación o degradar el sistema de manera controlada.
@@ -28,7 +28,7 @@ El riesgo particular de nuestro sistema es que la capacidad la consume **otro gr
 |---|---|---|---|---|
 | `api-gateway` | una réplica de `proveedores-service` | la marca como caída en el acto y **reintenta 1 vez en la otra**; el sondeo de `/healthz` cada 5 s la devuelve al reparto | `504 NO_DISPONIBLE` a los 3 s, **sin** sacarla del reparto | implementado |
 | `api-gateway` | las dos réplicas | `502 NO_DISPONIBLE`, y el `/readyz` del gateway pasa a 503 | `504 NO_DISPONIBLE` a los 3 s | implementado |
-| `proveedores-service` | PostgreSQL | `503 NO_DISPONIBLE` inmediato y `/readyz` en 503; `/healthz` (lo que sondea el gateway) sigue en 200, así que la réplica sigue en el reparto y contesta el error del contrato | `503` a los **2 s** (timeout de consulta y de conexión) | implementado |
+| `proveedores-service` | PostgreSQL | `503 NO_DISPONIBLE` a los **2 s** (timeout de conexión de pgx) y `/readyz` en 503; `/healthz` (lo que sondea el gateway) sigue en 200, así que la réplica sigue en el reparto y contesta el error del contrato. **Medido en el Game Day del 10/11**: 5 de 5 llamadas en 2,006–2,010 s, y la reserva de stock igual contra su propia base ([`POSTMORTEM.md`](../POSTMORTEM.md#escenario-3--postgresql-caído)) | `503` a los **2 s** (timeout de consulta y de conexión) | implementado |
 | `proveedores-service` | PostgreSQL al arrancar | reintenta las migraciones **15 veces cada 2 s** antes de rendirse | timeout de 10 s por intento | implementado |
 | todos | Jaeger | **ningún efecto**: el exportador falla en segundo plano y las requests siguen; Jaeger no es dependencia en el compose | ningún efecto | implementado |
 | `proveedores-service` | Redis (caché) | se saltea la caché y se lee de PostgreSQL; `/readyz` no se entera | timeout de 50 ms, sin reintentos, y la misma salida | implementado ([ADR-007](ADR-007-cache.md)) |
@@ -46,7 +46,7 @@ Los timeouts y el reintento están detallados en [ADR-005](ADR-005-comunicacion.
 ### Otros mecanismos implementados
 
 - **Separación entre `/healthz` (vivo) y `/readyz` (listo).** Si la base cae, el proceso sigue vivo y contesta `503`, porque el problema no es la réplica. `/readyz` en 503 deja el contenedor `unhealthy`, pero **en compose eso solo informa**: no reinicia el contenedor ni le saca tráfico, y `depends_on` lo mira solo al arrancar. Quien decide el reparto es el sondeo del gateway.
-- **Error inmediato con el formato del contrato:** todas las fallas de infraestructura salen como `problem+json` con `code: NO_DISPONIBLE`, nunca como un cuelgue o una página de error.
+- **Error acotado y con el formato del contrato:** todas las fallas de infraestructura salen como `problem+json` con `code: NO_DISPONIBLE`, nunca como un cuelgue ni como una página de error. "Acotado" y no "inmediato": con la base caída el error tarda 2 s, contra el timeout de 3 s del gateway. El margen real es de **1 segundo**, así que bajar el timeout del gateway por debajo de 2 s convertiría el `503` claro en un `504` sin diagnóstico.
 - **Apagado ordenado:** ante `SIGTERM`, el servidor deja de aceptar conexiones y espera hasta 10 s a que terminen las requests en curso; después vacía las trazas pendientes.
 - **Reinicio automático** si el proceso termina (`restart: unless-stopped`).
 
@@ -123,6 +123,14 @@ Mediciones del 06/11 sobre el límite de tráfico, con el sistema completo levan
 - **Un usuario logueado tiene su propio balde**: sigue recibiendo `200` mientras la API key está agotada (test `TestLimiteExcedidoDevuelve429ConRetryAfter`).
 - **Tests unitarios** del relleno con reloj simulado, de que los `401` no gastan el balde y del límite del login por IP (`entrega3_test.go`).
 - **Falta**: repetir la rampa de k6 de [ADR-013](ADR-013-capacidad-y-costos.md) con muchas claves para ver si el `504` desaparece.
+
+**Game Day del 10/11**, con el sistema completo y tirando abajo cada dependencia. El informe entero está en [`POSTMORTEM.md`](../POSTMORTEM.md); lo que verifica de este ADR:
+
+- **El circuit breaker hacia FAV abre donde dice.** Con FAV devolviendo `503` a todo, los logs de `import-service` muestran la secuencia completa: vuelta 1 `cerrado`, vuelta 2 `cerrado`, vuelta 3 **`abierto`**, y de la cuarta en adelante `"circuit breaker abierto: no se llama a la dependencia"`. Son las 3 fallas seguidas configuradas. Al volver FAV a `normal`, las sincronizaciones siguientes terminan sin error, sin intervención.
+- **La última importación válida sostiene la capacidad.** Con FAV caído, 5 de 5 consultas al ranking de un producto de ropa respondieron `200` en ~5 ms con el precio importado, y la búsqueda siguió devolviendo los 3 productos de FAV.
+- **La base caída da `503` a los 2 s**, 5 de 5, con `code: NO_DISPONIBLE` y `request_id`; la reserva de stock contra su propia base caída, igual. Nunca un cuelgue ni un `504`.
+- **El límite de tráfico, reproducido**: 400 llamadas concurrentes con la misma clave dieron **178 `200` y 222 `429`** con `Retry-After: 1`, coherente con la corrida del 06/11.
+- **Redis caído** no rompe la lectura: ver [ADR-007](ADR-007-cache.md).
 
 ## Qué nos haría cambiar de idea
 

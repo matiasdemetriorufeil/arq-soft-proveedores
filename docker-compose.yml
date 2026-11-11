@@ -127,7 +127,10 @@ services:
   # Base documental de import-service (ADR-003): guarda cada importación con
   # la respuesta cruda del proveedor, que cambia de forma según quién la manda.
   mongodb:
-    image: mongo:8.0
+    # 9.0 y no 8.0: el TCMalloc de 8.0 rompe el ABI de rseq y MongoDB no
+    # arranca sobre kernels 6.19 o más nuevos (SERVER-121912). Tiene que ser
+    # la misma imagen que el test de integración del adaptador.
+    image: mongo:9.0
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:?falta MONGO_USER en .env}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?falta MONGO_PASSWORD en .env}

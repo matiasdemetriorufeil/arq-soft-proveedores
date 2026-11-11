@@ -30,3 +30,18 @@ services:
   fav-mock:
     ports: !override
       - "127.0.0.1:8090:8090"
+  # La única cosa, además del gateway, que tiene que salir a internet: el
+  # receptor del webhook de FAV. ADR-009 pide que FAV llegue a stock-service
+  # directo y no por el gateway, así que el servicio necesita su propio puerto
+  # en la VM. Lo que queda expuesto:
+  #
+  #   POST /webhooks/fav       se autentica con la firma HMAC del aviso
+  #   /api/v1/stock/...        detrás de conAPIKey, pero sin el límite de
+  #                            tráfico del gateway: es la contra de abrir el
+  #                            puerto, y está anotada en ARCHITECTURE.md
+  #   /healthz, /readyz        sin datos
+  #
+  # A FAV se le pasa solo la URL del webhook (ver docs/contracts/para-fav.md).
+  stock-service:
+    ports:
+      - "${PUERTO_WEBHOOK_FAV:-8081}:8080"

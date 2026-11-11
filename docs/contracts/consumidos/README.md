@@ -12,3 +12,7 @@ agrega su archivo al lado y se revisa [ADR-009](../../adr/ADR-009-consumo-provee
 La documentación completa de FAV (webhook, firma, errores, versionado y mock) está en su
 repositorio, en `docs/contracts/README.md` y `mocks/catalogo-pedidos-v1/`. Contacto:
 2212370@ucc.edu.ar.
+
+**Lo que va en la otra dirección** —lo que FAV necesita para avisarnos: URL del
+webhook, formato de la firma, cuerpo y códigos de respuesta— está en
+[`../para-fav.md`](../para-fav.md).

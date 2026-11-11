@@ -14,9 +14,28 @@ Reparto del trabajo entre los 4 integrantes para llegar a la Entrega 3 y a la pr
 | 1 (Fede) | Infraestructura, mensajería e importación de FAV | ✅ Hecho (rama `feat/import-service`): compose con RabbitMQ, MongoDB, Redis, Meilisearch, `fav-mock` y base de stock; `pkg/mensajeria` y `docs/contracts/eventos.md`; `import-service` con test de contrato; ADR-014 y ADR-001, 003, 005, 009 y 010 actualizados. Falta: correr los tests de integración de MongoDB y `docker compose up` completo en una máquina con Docker |
 | 2 | Lectura rápida: caché y búsqueda en `proveedores-service` | ✅ Hecho (en `main` desde el PR #8, 06/11): consumidor del evento con DLQ y consumidor único, caché Redis, búsqueda en Meilisearch con reconstrucción y pool del gateway; ADR-006 y ADR-007 aceptados, ADR-005, 010 y 013 actualizados, con mediciones A, B y C en `tests/carga/resultados/2026-11-06-*`. La capacidad máxima con pool y caché no está medida: ninguna serie llegó al límite a 1 600 req/s |
 | 3 | `stock-service`: reserva, reposición y pedidos a FAV | ✅ Hecho (rama `feat/stock-service`): servicio en capas con su base, reserva sin sobreventa con test de concurrencia, reposición automática, pedidos a FAV con `Idempotency-Key` y webhook HMAC (estos dos los terminó el Integrante 1), ADR-004 nuevo y ADR-002, 009 y SPEC al día. Probado contra PostgreSQL real y de punta a punta contra el mock de FAV. Ruteado en el gateway por la parte 4 |
-| 4 (Santino) | Entrada, frontend, nube y operación | 🟡 Casi todo (rama `feat/frontend-nube`, sobre `feat/stock-service` y con `main` mergeado): login JWT, límite de tráfico con `429`, ruteo a `stock-service` y a la búsqueda, frontend, métricas, tablero, 3 alertas, CI, contrato 1.1.0 y despliegue preparado (`docs/NUBE.md`); ADR-008, 010, 011 y `ARCHITECTURE.md` al día. Falta: crear la VM y publicar la URL, y el Game Day |
+| 4 (Santino) | Entrada, frontend, nube y operación | 🟡 Casi todo (rama `feat/frontend-nube`, sobre `feat/stock-service` y con `main` mergeado): login JWT, límite de tráfico con `429`, ruteo a `stock-service` y a la búsqueda, frontend, métricas, tablero, 3 alertas, CI, contrato 1.1.0 y despliegue preparado (`docs/NUBE.md`); ADR-008, 010, 011 y `ARCHITECTURE.md` al día. ✅ Completo al 11/11: la VM está creada y la URL publicada (<http://20.226.84.78/>), y el Game Day está en [`POSTMORTEM.md`](POSTMORTEM.md) |
 
 Cada uno actualiza su fila cuando termina.
+
+**Cierre del 10/11.** Las cuatro partes están en `main`. Lo que se cerró después del
+6/11, fuera del reparto de arriba porque no era de nadie en particular:
+
+- **CI en verde.** El job `Integración (services/import-service)` venía fallando en
+  `main`: MongoDB 8.0 no arranca sobre el kernel 6.19 de los runners de GitHub
+  (SERVER-121912). Se subió la imagen a 9.0 en el compose y en el test. Esto también
+  cierra el pendiente del Integrante 1 de correr los tests de integración de MongoDB:
+  ahora corren en cada push.
+- **Game Day y [`POSTMORTEM.md`](POSTMORTEM.md)**, que era el hueco obligatorio de la
+  defensa individual.
+- **[`DEMO-ENTREGA-3.md`](DEMO-ENTREGA-3.md)** y el tag `entrega-3`.
+- **`README.md`**, cuya tabla de estado seguía dando por pendientes el frontend, las
+  métricas y la nube, y **[ADR-001](adr/ADR-001-limites-de-los-servicios.md)**, que
+  daba `stock-service` como "propuesto" contra lo que ya decían ADR-002, 003 y 004.
+- Se cerró el **PR #7** (`feat/stock-service`): su contenido entró a `main` por el
+  squash del PR #9, que salió de esa misma rama.
+
+**Al 11/11 no queda ningún obligatorio sin cumplir.** La URL pública es <http://20.226.84.78/>. Lo único abierto es [ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md), que espera la confirmación de la cátedra.
 
 ## Antes de arrancar
 
@@ -30,37 +49,37 @@ Cada uno actualiza su fila cuando termina.
 
 ### Entrega 3 — viernes 6/11 (presentación de los profes)
 
-- [ ] Consumo **real** de FAV (ya no diseñado): catálogo en el ranking y pedidos de reposición
-- [ ] Capacidad propia **en la nube con URL pública**
-- [ ] Caché **medida** antes y después
-- [ ] Test de carga corrido de nuevo (ya hay uno; repetirlo con caché y contra la nube)
-- [ ] Plan escrito ante la caída de cada dependencia ([ADR-010](adr/ADR-010-resiliencia.md) actualizado)
-- [ ] Tag `entrega-3` y demo de 5 minutos
+- [x] Consumo **real** de FAV (ya no diseñado): catálogo en el ranking y pedidos de reposición. **Contra el mock que cumple su OpenAPI v1.1.0**, porque FAV nunca publicó su URL; el test de contrato pasa igual (era el plan B escrito en *Riesgos*)
+- [x] Capacidad propia **en la nube con URL pública**: <http://20.226.84.78/>, los 14 contenedores en una VM de Azure (11/11)
+- [x] Caché **medida** antes y después ([ADR-007](adr/ADR-007-cache.md), series en `tests/carga/resultados/2026-11-06-*`)
+- [x] Test de carga corrido de nuevo con caché y con el pool del gateway. **Contra la nube no**: la VM se creó el 11/11, después del congelamiento, y una corrida de k6 contra 2 vCPU mediría la VM, no la arquitectura
+- [x] Plan escrito ante la caída de cada dependencia ([ADR-010](adr/ADR-010-resiliencia.md) actualizado y [`POSTMORTEM.md`](POSTMORTEM.md) con el Game Day)
+- [x] Tag `entrega-3` y demo de 5 minutos ([`DEMO-ENTREGA-3.md`](DEMO-ENTREGA-3.md))
 
 ### Presentación grupal — 11 o 13/11 (consigna)
 
-- [ ] Frontend completo, desde el ingreso del usuario hasta la funcionalidad compartida
-- [ ] Gateway con autenticación, direccionamiento y **control de tráfico**
-- [ ] Al menos **3 servicios** operativos
-- [ ] Capacidad propia en la nube con URL pública
-- [ ] Capacidad del proveedor (FAV) incorporada al flujo principal
-- [ ] **2 tipos de almacenamiento** en el flujo: PostgreSQL y MongoDB
-- [ ] Caché en un flujo de lectura relevante, con medición antes y después
-- [ ] **2 patrones** de arquitectura interna reconocibles: hexagonal (`proveedores-service`) y en capas (`stock-service`)
-- [ ] Evento de dominio por mensajería, con **consumidor idempotente** y tratamiento de mensajes no procesables (DLQ)
-- [ ] Búsqueda indexada con paginación, filtros, orden y reconstrucción del índice
-- [ ] Decisiones verificadas con evidencia medida en el sistema
-- [ ] Limitaciones y deuda técnica actualizadas en `ARCHITECTURE.md`
+- [x] Frontend completo, desde el ingreso del usuario hasta la funcionalidad compartida (login → buscar → ranking → reservar, embebido en el gateway)
+- [x] Gateway con autenticación (API key y JWT), direccionamiento y **control de tráfico** (token bucket con `429`)
+- [x] Al menos **3 servicios** operativos: `proveedores-service`, `import-service` y `stock-service`
+- [x] Capacidad propia en la nube con URL pública: <http://20.226.84.78/>
+- [x] Capacidad del proveedor (FAV) incorporada al flujo principal: su catálogo entra al ranking y las reposiciones salen como pedidos
+- [x] **2 tipos de almacenamiento** en el flujo: PostgreSQL (`proveedores` y `stock`) y MongoDB (`import-service`)
+- [x] Caché en un flujo de lectura relevante, con medición antes y después ([ADR-007](adr/ADR-007-cache.md))
+- [x] **2 patrones** de arquitectura interna reconocibles: hexagonal (`proveedores-service`) y en capas (`stock-service`)
+- [x] Evento de dominio por mensajería, con **consumidor idempotente** por `evento_id` y mensajes no procesables a la DLQ
+- [x] Búsqueda indexada con paginación, filtros, orden y reconstrucción del índice (Meilisearch, [ADR-006](adr/ADR-006-busqueda.md))
+- [x] Decisiones verificadas con evidencia medida en el sistema (13 de los 14 ADR en "aceptado"; ADR-014 espera a la cátedra)
+- [x] Limitaciones y deuda técnica actualizadas en `ARCHITECTURE.md`
 
 ### Defensa individual (lo que cada uno tiene que poder mostrar)
 
-- [ ] Operación crítica con garantías de consistencia y concurrencia (reserva sin sobreventa, **D4**)
-- [ ] Tests unitarios y un test de integración contra una dependencia real, por servicio nuevo
-- [ ] **Test de contrato** sobre lo que consumimos de FAV
-- [ ] Balanceo operativo (ya está, [ADR-012](adr/ADR-012-balanceo-de-carga.md))
-- [ ] Caída simulada de una dependencia propia y de FAV, con su informe en `docs/POSTMORTEM.md`
-- [ ] Logs, métricas, trazas, **tablero y alerta**
-- [ ] Pipeline de CI que corre los tests en cada push
+- [x] Operación crítica con garantías de consistencia y concurrencia (reserva sin sobreventa, **D4**)
+- [x] Tests unitarios y un test de integración contra una dependencia real, por servicio nuevo
+- [x] **Test de contrato** sobre lo que consumimos de FAV (catálogo y pedidos)
+- [x] Balanceo operativo (ya está, [ADR-012](adr/ADR-012-balanceo-de-carga.md))
+- [x] Caída simulada de una dependencia propia y de FAV, con su informe en [`POSTMORTEM.md`](POSTMORTEM.md)
+- [x] Logs, métricas, trazas, **tablero y alerta** (tres alertas, [ADR-011](adr/ADR-011-observabilidad.md))
+- [x] Pipeline de CI que corre los tests en cada push (verde en `main`; los 10 jobs)
 
 ## Lo que ya está decidido (sale de los ADR, no se vuelve a discutir)
 
@@ -191,17 +210,16 @@ Documentación:
 4. Apagar FAV (o simularlo) y mostrar que el ranking sigue con la última importación válida
 5. Recorrer rápido los ADR que pasaron a "aceptado"
 
-## Pendiente con gente de afuera (hoy)
+## Pendiente con gente de afuera (al 10/11)
 
 **A los profes**
-- ¿El código queda congelado el 6/11?
-- ¿Alcanza con tres servicios sin `catalog-service`?
+- ¿Alcanza con tres servicios sin `catalog-service`? Sin esta respuesta [ADR-014](adr/ADR-014-tres-servicios-sin-catalogo.md) no puede pasar de "propuesto", y es el único ADR que sigue sin aceptar.
 
 **Grupo de ropa (FAV)**
-- Su URL desplegada, la clave del grupo y el secreto para firmar los avisos (el contrato los marca **[?]**)
+- **No llegó nada**: ni URL desplegada, ni clave, ni secreto de avisos (el contrato los marca **[?]**). Se aplicó el plan B de *Riesgos*: todo el consumo está probado contra `fav-mock`, que cumple su OpenAPI v1.1.0, y los tests de contrato pasan. Con `FAV_URL` en `.env` se apunta al real sin cambiar código.
 
 **Grupo de paneles solares**
-- Avisarles que la URL pública llega el 6/11 y que el contrato suma el `429`
+- **Sigue pendiente** avisarles del `429` del contrato 1.1.0 y pasarles la URL pública, que todavía no existe. Mientras tanto consumen la instancia local.
 
 ## Riesgos
 

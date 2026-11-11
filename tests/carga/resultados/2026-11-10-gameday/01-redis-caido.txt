@@ -1,0 +1,20 @@
+### Escenario 1: Redis caído (caché)
+-- antes (caché arriba), 5 llamadas:
+  http=200 tiempo=0.006624s
+  http=200 tiempo=0.006483s
+  http=200 tiempo=0.006674s
+  http=200 tiempo=0.005812s
+  http=200 tiempo=0.004940s
+-- se detiene redis:
+ Container arq-soft-proveedores-redis-1  Stopped
+-- después (caché caído), 5 llamadas:
+  http=200 tiempo=0.058605s
+  http=200 tiempo=0.056857s
+  http=200 tiempo=0.056559s
+  http=200 tiempo=0.056598s
+  http=200 tiempo=0.056683s
+-- cuerpo de una respuesta con Redis caído:
+[{"proveedor_id":11,"proveedor_nombre":"FAV (tienda de ropa)","precio_unitario":15000,"descuento_pct":0,"descuento_aplicado":false,"flete":0,"stock_disponible":10,"costo_total":75000}]
+
+-- se restaura redis:
+ Container arq-soft-proveedores-redis-1  Started
