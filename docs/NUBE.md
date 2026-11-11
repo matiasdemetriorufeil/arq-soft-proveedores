@@ -58,6 +58,22 @@ sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
 sudo iptables -I INPUT -p tcp --dport 8081 -j ACCEPT   # solo con el FAV real
 ```
 
+### Si no sale ninguna VM: túnel (respaldo, NO es la nube)
+
+Red de seguridad para no quedarse sin URL pública el día de la presentación. **No cumple el ítem de la consigna** —es una máquina local detrás de un túnel, no capacidad desplegada— y hay que presentarlo por lo que es.
+
+Con el sistema levantado en local:
+
+```bash
+cloudflared tunnel --url http://localhost:8080
+```
+
+Imprime una URL `https://<palabras>.trycloudflare.com` que sale a internet, con HTTPS y sin cuenta ni configuración. **Probado el 10/11**: el frontend carga, y la capacidad, el login, la búsqueda y la reserva responden igual que en local.
+
+Se eligió sobre `ngrok` porque ngrok gratuito intercala una **pantalla de advertencia** antes de la aplicación la primera vez que se entra desde un navegador, y eso no se quiere en medio de una demo. Cloudflare no la tiene.
+
+Límites: la URL cambia cada vez que se reinicia, el túnel vive mientras viva el proceso, y **mientras está arriba el sistema queda expuesto con las credenciales del `.env` local**. Conviene levantarlo para la demo y bajarlo después.
+
 ## 2. Instalar y levantar
 
 Con SSH en la VM:
